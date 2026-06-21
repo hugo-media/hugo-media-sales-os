@@ -19,7 +19,6 @@ import {
   Users,
   X
 } from "lucide-react";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { useEffect, useMemo, useState } from "react";
 
 type LeadStatus =
@@ -394,7 +393,11 @@ const nav = [
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase =
-  supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
+  supabaseUrl && supabaseAnonKey
+    ? { url: supabaseUrl.replace(/\/$/, ""), key: supabaseAnonKey }
+    : null;
+
+type SupabaseConnection = NonNullable<typeof supabase>;
 
 const seedSnapshot: CrmSnapshot = {
   leads: seedLeads,
@@ -431,36 +434,97 @@ function cleanTask(task: Task) {
   return { ...task, related_lead_id: task.related_lead_id || null };
 }
 
-async function fetchSupabaseSnapshot(client: SupabaseClient): Promise<CrmSnapshot | null> {
-  const [leads, tasks, contentItems, templates, history] = await Promise.all([
-    client.from("leads").select("*").order("created_at", { ascending: false }),
-    client.from("tasks").select("*").order("due_date", { ascending: true }),
-    client.from("content_items").select("*").order("date", { ascending: true }),
-    client.from("templates").select("*").order("created_at", { ascending: false }),
-    client.from("status_history").select("*").order("created_at", { ascending: false })
-  ]);
+async function supabaseRequest<T>(
+  connection: SupabaseConnection,
+  table: string,
+  query: string,
+  init?: RequestInit
+): Promise<T> {
+  const response = await fetch(`${connection.url}/rest/v1/${table}?${query}`, {
+    ...init,
+    headers: {
+      apikey: connection.key,
+      Authorization: `Bearer ${connection.key}`,
+      "Content-Type": "application/json",
+      ...(init?.headers ?? {})
+    }
+  });
 
-  if (leads.error || tasks.error || contentItems.error || templates.error || history.error) {
-    return null;
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`${table}: ${response.status} ${body}`);
   }
 
-  return {
-    leads: (leads.data ?? []) as Lead[],
-    tasks: (tasks.data ?? []) as Task[],
-    contentItems: ((contentItems.data ?? []) as ContentRow[]).map(rowToContent),
-    templates: (templates.data ?? []) as Template[],
-    history: (history.data ?? []) as HistoryItem[]
-  };
+  if (response.status === 204) {
+    return null as T;
+  }
+
+  const text = await response.text();
+  return text ? (JSON.parse(text) as T) : (null as T);
 }
 
-function syncSupabaseSnapshot(client: SupabaseClient, snapshot: CrmSnapshot) {
+async function fetchSupabaseSnapshot(
+  connection: SupabaseConnection
+): Promise<{ snapshot: CrmSnapshot | null; error?: string }> {
+  try {
+    const [leads, tasks, contentItems, templates, history] = await Promise.all([
+      supabaseRequest<Lead[]>(connection, "leads", "select=*&order=created_at.desc"),
+      supabaseRequest<Task[]>(connection, "tasks", "select=*&order=due_date.asc"),
+      supabaseRequest<ContentRow[]>(connection, "content_items", "select=*&order=date.asc"),
+      supabaseRequest<Template[]>(connection, "templates", "select=*&order=created_at.desc"),
+      supabaseRequest<HistoryItem[]>(connection, "status_history", "select=*&order=created_at.desc")
+    ]);
+
+    return {
+      snapshot: {
+        leads,
+        tasks,
+        contentItems: contentItems.map(rowToContent),
+        templates,
+        history
+      }
+    };
+  } catch (error) {
+    return {
+      snapshot: null,
+      error: error instanceof Error ? error.message : "Supabase request failed"
+    };
+  }
+}
+
+async function upsertRows<T>(connection: SupabaseConnection, table: string, rows: T[]) {
+  if (!rows.length) return;
+
+  await supabaseRequest<null>(connection, table, "", {
+    method: "POST",
+    headers: {
+      Prefer: "resolution=merge-duplicates,return=minimal"
+    },
+    body: JSON.stringify(rows)
+  });
+}
+
+function syncSupabaseSnapshot(connection: SupabaseConnection, snapshot: CrmSnapshot) {
   void Promise.all([
-    snapshot.leads.length ? client.from("leads").upsert(snapshot.leads) : Promise.resolve(),
-    snapshot.tasks.length ? client.from("tasks").upsert(snapshot.tasks.map(cleanTask)) : Promise.resolve(),
-    snapshot.contentItems.length ? client.from("content_items").upsert(snapshot.contentItems.map(contentToRow)) : Promise.resolve(),
-    snapshot.templates.length ? client.from("templates").upsert(snapshot.templates) : Promise.resolve(),
-    snapshot.history.length ? client.from("status_history").upsert(snapshot.history) : Promise.resolve()
-  ]);
+    upsertRows(connection, "leads", snapshot.leads),
+    upsertRows(connection, "tasks", snapshot.tasks.map(cleanTask)),
+    upsertRows(connection, "content_items", snapshot.contentItems.map(contentToRow)),
+    upsertRows(connection, "templates", snapshot.templates),
+    upsertRows(connection, "status_history", snapshot.history)
+  ]).catch((error) => {
+    console.error("Supabase sync failed", error);
+  });
+}
+
+function deleteSupabaseRows(connection: SupabaseConnection, table: string, filter: string) {
+  void supabaseRequest<null>(connection, table, filter, {
+    method: "DELETE",
+    headers: {
+      Prefer: "return=minimal"
+    }
+  }).catch((error) => {
+    console.error("Supabase delete failed", error);
+  });
 }
 
 export default function SalesOs() {
@@ -472,6 +536,7 @@ export default function SalesOs() {
   const [history, setHistory] = useState(seedSnapshot.history);
   const [isHydrated, setIsHydrated] = useState(false);
   const [dataSource, setDataSource] = useState<"local" | "supabase">(supabase ? "supabase" : "local");
+  const [dataSourceNote, setDataSourceNote] = useState("");
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("Усі");
@@ -500,7 +565,7 @@ export default function SalesOs() {
       }
 
       if (supabase) {
-        const remoteSnapshot = await fetchSupabaseSnapshot(supabase);
+        const { snapshot: remoteSnapshot, error } = await fetchSupabaseSnapshot(supabase);
         if (cancelled) return;
 
         if (remoteSnapshot) {
@@ -517,9 +582,13 @@ export default function SalesOs() {
             syncSupabaseSnapshot(supabase, nextSnapshot);
           }
           setDataSource("supabase");
+          setDataSourceNote("");
         } else {
           setDataSource("local");
+          setDataSourceNote(`Supabase не підключився: ${error ?? "невідома помилка"}`);
         }
+      } else {
+        setDataSourceNote("Supabase змінні не задані у Vercel.");
       }
 
       setIsHydrated(true);
@@ -663,8 +732,8 @@ export default function SalesOs() {
     setTasks((current) => current.filter((task) => task.related_lead_id !== id));
     setHistory((current) => current.filter((item) => item.lead_id !== id));
     if (supabase && dataSource === "supabase") {
-      void supabase.from("tasks").delete().eq("related_lead_id", id);
-      void supabase.from("leads").delete().eq("id", id);
+      deleteSupabaseRows(supabase, "tasks", `related_lead_id=eq.${encodeURIComponent(id)}`);
+      deleteSupabaseRows(supabase, "leads", `id=eq.${encodeURIComponent(id)}`);
     }
     if (selectedLeadId === id) {
       setSelectedLeadId(null);
@@ -727,6 +796,7 @@ export default function SalesOs() {
             <p className="mt-2 text-xs text-slate-500">
               Дані: {dataSource === "supabase" ? "Supabase" : "локальне збереження у браузері"}
             </p>
+            {dataSourceNote ? <p className="mt-1 text-xs text-amber-300">{dataSourceNote}</p> : null}
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -808,7 +878,7 @@ export default function SalesOs() {
             onDelete={(id) => {
               setTemplates((current) => current.filter((item) => item.id !== id));
               if (supabase && dataSource === "supabase") {
-                void supabase.from("templates").delete().eq("id", id);
+                deleteSupabaseRows(supabase, "templates", `id=eq.${encodeURIComponent(id)}`);
               }
             }}
             onCopied={() => setToast("Текст скопійовано")}
