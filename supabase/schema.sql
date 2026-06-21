@@ -80,6 +80,35 @@ create table if not exists public.settings (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.packages (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  value numeric(12, 2) not null default 0,
+  description text,
+  color text,
+  archived boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.statuses (
+  id uuid primary key default gen_random_uuid(),
+  label text not null,
+  color text,
+  sort_order integer not null default 0,
+  archived boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.kpi_targets (
+  id uuid primary key default gen_random_uuid(),
+  key text not null unique,
+  value jsonb not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists leads_status_idx on public.leads(status);
 create index if not exists leads_follow_up_date_idx on public.leads(follow_up_date);
 create index if not exists leads_niche_idx on public.leads(niche);
@@ -116,6 +145,18 @@ drop trigger if exists settings_set_updated_at on public.settings;
 create trigger settings_set_updated_at before update on public.settings
 for each row execute function public.set_updated_at();
 
+drop trigger if exists packages_set_updated_at on public.packages;
+create trigger packages_set_updated_at before update on public.packages
+for each row execute function public.set_updated_at();
+
+drop trigger if exists statuses_set_updated_at on public.statuses;
+create trigger statuses_set_updated_at before update on public.statuses
+for each row execute function public.set_updated_at();
+
+drop trigger if exists kpi_targets_set_updated_at on public.kpi_targets;
+create trigger kpi_targets_set_updated_at before update on public.kpi_targets
+for each row execute function public.set_updated_at();
+
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on public.leads to anon, authenticated;
 grant select, insert, update, delete on public.tasks to anon, authenticated;
@@ -123,6 +164,9 @@ grant select, insert, update, delete on public.content_items to anon, authentica
 grant select, insert, update, delete on public.templates to anon, authenticated;
 grant select, insert, update, delete on public.status_history to anon, authenticated;
 grant select, insert, update, delete on public.settings to anon, authenticated;
+grant select, insert, update, delete on public.packages to anon, authenticated;
+grant select, insert, update, delete on public.statuses to anon, authenticated;
+grant select, insert, update, delete on public.kpi_targets to anon, authenticated;
 
 alter table public.leads enable row level security;
 alter table public.tasks enable row level security;
@@ -130,6 +174,9 @@ alter table public.content_items enable row level security;
 alter table public.templates enable row level security;
 alter table public.status_history enable row level security;
 alter table public.settings enable row level security;
+alter table public.packages enable row level security;
+alter table public.statuses enable row level security;
+alter table public.kpi_targets enable row level security;
 
 drop policy if exists "public_crm_access" on public.leads;
 create policy "public_crm_access" on public.leads
@@ -163,6 +210,24 @@ with check (true);
 
 drop policy if exists "public_crm_access" on public.settings;
 create policy "public_crm_access" on public.settings
+for all to anon, authenticated
+using (true)
+with check (true);
+
+drop policy if exists "public_crm_access" on public.packages;
+create policy "public_crm_access" on public.packages
+for all to anon, authenticated
+using (true)
+with check (true);
+
+drop policy if exists "public_crm_access" on public.statuses;
+create policy "public_crm_access" on public.statuses
+for all to anon, authenticated
+using (true)
+with check (true);
+
+drop policy if exists "public_crm_access" on public.kpi_targets;
+create policy "public_crm_access" on public.kpi_targets
 for all to anon, authenticated
 using (true)
 with check (true);

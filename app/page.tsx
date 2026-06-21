@@ -81,7 +81,7 @@ type ContentItem = {
   key_points: string;
   CTA: string;
   target_niche: string;
-  status: "Ідея" | "Підготувати" | "Записати" | "Змонтовано" | "Опубліковано";
+  status: "Ідея" | "Заплановано" | "Записано" | "Змонтовано" | "Опубліковано" | "Архів";
   platform: "TikTok" | "Instagram" | "Facebook" | "YouTube Shorts" | "Telegram";
   notes: string;
 };
@@ -101,15 +101,65 @@ type HistoryItem = {
   created_at: string;
 };
 
+type PackageItem = {
+  id: string;
+  name: string;
+  value: number;
+  description: string;
+  color: string;
+  archived: boolean;
+};
+
+type DailyTarget = {
+  id: string;
+  title: string;
+  target: number;
+  done: boolean;
+  custom: boolean;
+};
+
+type KpiTargets = {
+  weekly_new_leads: number;
+  weekly_messages: number;
+  weekly_followups: number;
+  weekly_calls: number;
+  weekly_proposals: number;
+  weekly_closed_deals: number;
+  monthly_revenue: number;
+  goal_30_day: string;
+  goal_60_day: string;
+  goal_90_day: string;
+};
+
+type BusinessProfile = {
+  platform_name: string;
+  owner_name: string;
+  positioning_line: string;
+  audience_description: string;
+  website_url: string;
+  currency: string;
+  default_city: string;
+  default_language: string;
+};
+
+type AppSettings = {
+  business: BusinessProfile;
+  packages: PackageItem[];
+  dailyTargets: DailyTarget[];
+  kpiTargets: KpiTargets;
+};
+
 type CrmSnapshot = {
   leads: Lead[];
   tasks: Task[];
   contentItems: ContentItem[];
   templates: Template[];
   history: HistoryItem[];
+  settings: AppSettings;
 };
 
 type ContentRow = Omit<ContentItem, "CTA"> & { cta: string };
+type SettingRow = { key: string; value: AppSettings };
 
 const statuses: LeadStatus[] = [
   "Новий",
@@ -138,12 +188,82 @@ const niches = [
   "Фінанси"
 ];
 
-const packages = [
-  { name: "Медійний візит Hugo", value: 300 },
-  { name: "Місячна медіасерія", value: 1000 },
-  { name: "Повна медійна присутність", value: 2000 },
-  { name: "Тематичне партнерство", value: 0 }
+const templateCategories = [
+  "first outreach",
+  "follow-up",
+  "send details",
+  "price objection",
+  "proposal",
+  "post",
+  "comment",
+  "call script"
 ];
+
+const defaultSettings: AppSettings = {
+  business: {
+    platform_name: "Hugo Media Sales OS",
+    owner_name: "Сергій Гальчук / Hugo",
+    positioning_line: "Показую не просто бізнес. Показую людину за бізнесом.",
+    audience_description: "Українські підприємці та локальні бізнеси у Польщі й Європі.",
+    website_url: "",
+    currency: "EUR",
+    default_city: "Варшава",
+    default_language: "uk"
+  },
+  packages: [
+    {
+      id: "package-media-visit",
+      name: "Медійний візит Hugo",
+      value: 300,
+      description: "Одна зйомка і коротка медійна присутність для старту.",
+      color: "#38bdf8",
+      archived: false
+    },
+    {
+      id: "package-monthly-series",
+      name: "Місячна медіасерія",
+      value: 1000,
+      description: "Серія матеріалів на місяць для стабільної присутності.",
+      color: "#a78bfa",
+      archived: false
+    },
+    {
+      id: "package-full-presence",
+      name: "Повна медійна присутність",
+      value: 2000,
+      description: "Комплексна упаковка, контент і регулярна комунікація.",
+      color: "#34d399",
+      archived: false
+    },
+    {
+      id: "package-partnership",
+      name: "Тематичне партнерство",
+      value: 0,
+      description: "Індивідуальний формат під подію, рубрику або партнерство.",
+      color: "#f59e0b",
+      archived: false
+    }
+  ],
+  dailyTargets: [
+    { id: "daily-leads", title: "Додати нові ліди", target: 10, done: false, custom: false },
+    { id: "daily-messages", title: "Відправити перші повідомлення", target: 10, done: false, custom: false },
+    { id: "daily-followups", title: "Зробити follow-up", target: 5, done: false, custom: false },
+    { id: "daily-content", title: "Підготувати контент-одиницю", target: 1, done: false, custom: false },
+    { id: "daily-crm", title: "Оновити CRM / продажі", target: 1, done: false, custom: false }
+  ],
+  kpiTargets: {
+    weekly_new_leads: 50,
+    weekly_messages: 50,
+    weekly_followups: 25,
+    weekly_calls: 5,
+    weekly_proposals: 5,
+    weekly_closed_deals: 1,
+    monthly_revenue: 5000,
+    goal_30_day: "Стабілізувати щоденний outreach і перші КП.",
+    goal_60_day: "Побудувати прогнозований pipeline.",
+    goal_90_day: "Вийти на повторюваний місячний дохід."
+  }
+};
 
 const today = "2026-06-21";
 const tomorrow = "2026-06-22";
@@ -302,7 +422,7 @@ const seedContent: ContentItem[] = [
     key_points: "Довіра, обличчя, історія, регулярна присутність.",
     CTA: "Напишіть Hugo, якщо бізнесу потрібна медійність.",
     target_niche: "Усі ніші",
-    status: "Підготувати",
+    status: "Заплановано",
     platform: "Instagram",
     notes: "Зняти як короткий монолог."
   },
@@ -404,7 +524,8 @@ const seedSnapshot: CrmSnapshot = {
   tasks: seedTasks,
   contentItems: seedContent,
   templates: seedTemplates,
-  history: seedHistory
+  history: seedHistory,
+  settings: defaultSettings
 };
 
 function readLocalSnapshot(): CrmSnapshot | null {
@@ -427,11 +548,22 @@ function contentToRow(item: ContentItem): ContentRow {
 
 function rowToContent(item: ContentRow): ContentItem {
   const { cta, ...rest } = item;
-  return { ...rest, CTA: cta ?? "" };
+  const rawStatus = String(rest.status);
+  const status = rawStatus === "Підготувати" ? "Заплановано" : rawStatus === "Записати" ? "Записано" : rawStatus;
+  return { ...rest, status, CTA: cta ?? "" } as ContentItem;
 }
 
 function cleanTask(task: Task) {
   return { ...task, related_lead_id: task.related_lead_id || null };
+}
+
+function mergeSettings(settings?: Partial<AppSettings> | null): AppSettings {
+  return {
+    business: { ...defaultSettings.business, ...(settings?.business ?? {}) },
+    packages: settings?.packages?.length ? settings.packages : defaultSettings.packages,
+    dailyTargets: settings?.dailyTargets?.length ? settings.dailyTargets : defaultSettings.dailyTargets,
+    kpiTargets: { ...defaultSettings.kpiTargets, ...(settings?.kpiTargets ?? {}) }
+  };
 }
 
 async function supabaseRequest<T>(
@@ -467,21 +599,24 @@ async function fetchSupabaseSnapshot(
   connection: SupabaseConnection
 ): Promise<{ snapshot: CrmSnapshot | null; error?: string }> {
   try {
-    const [leads, tasks, contentItems, templates, history] = await Promise.all([
+    const [leads, tasks, contentItems, templates, history, settingsRows] = await Promise.all([
       supabaseRequest<Lead[]>(connection, "leads", "select=*&order=created_at.desc"),
       supabaseRequest<Task[]>(connection, "tasks", "select=*&order=due_date.asc"),
       supabaseRequest<ContentRow[]>(connection, "content_items", "select=*&order=date.asc"),
       supabaseRequest<Template[]>(connection, "templates", "select=*&order=created_at.desc"),
-      supabaseRequest<HistoryItem[]>(connection, "status_history", "select=*&order=created_at.desc")
+      supabaseRequest<HistoryItem[]>(connection, "status_history", "select=*&order=created_at.desc"),
+      supabaseRequest<SettingRow[]>(connection, "settings", "select=key,value&key=eq.app")
     ]);
 
+    const remoteSettings = settingsRows[0]?.value;
     return {
       snapshot: {
         leads,
         tasks,
         contentItems: contentItems.map(rowToContent),
         templates,
-        history
+        history,
+        settings: mergeSettings(remoteSettings)
       }
     };
   } catch (error) {
@@ -510,7 +645,14 @@ function syncSupabaseSnapshot(connection: SupabaseConnection, snapshot: CrmSnaps
     upsertRows(connection, "tasks", snapshot.tasks.map(cleanTask)),
     upsertRows(connection, "content_items", snapshot.contentItems.map(contentToRow)),
     upsertRows(connection, "templates", snapshot.templates),
-    upsertRows(connection, "status_history", snapshot.history)
+    upsertRows(connection, "status_history", snapshot.history),
+    supabaseRequest<null>(connection, "settings", "on_conflict=key", {
+      method: "POST",
+      headers: {
+        Prefer: "resolution=merge-duplicates,return=minimal"
+      },
+      body: JSON.stringify([{ key: "app", value: snapshot.settings }])
+    })
   ]).catch((error) => {
     console.error("Supabase sync failed", error);
   });
@@ -534,6 +676,7 @@ export default function SalesOs() {
   const [contentItems, setContentItems] = useState(seedSnapshot.contentItems);
   const [templates, setTemplates] = useState(seedSnapshot.templates);
   const [history, setHistory] = useState(seedSnapshot.history);
+  const [settings, setSettings] = useState(seedSnapshot.settings);
   const [isHydrated, setIsHydrated] = useState(false);
   const [dataSource, setDataSource] = useState<"local" | "supabase">(supabase ? "supabase" : "local");
   const [dataSourceNote, setDataSourceNote] = useState("");
@@ -558,6 +701,7 @@ export default function SalesOs() {
         setContentItems(snapshot.contentItems);
         setTemplates(snapshot.templates);
         setHistory(snapshot.history);
+        setSettings(mergeSettings(snapshot.settings));
       };
 
       if (localSnapshot) {
@@ -602,13 +746,13 @@ export default function SalesOs() {
 
   useEffect(() => {
     if (!isHydrated) return;
-    const snapshot = { leads, tasks, contentItems, templates, history };
+    const snapshot = { leads, tasks, contentItems, templates, history, settings };
     writeLocalSnapshot(snapshot);
 
     if (!supabase || dataSource !== "supabase") return;
     const timer = window.setTimeout(() => syncSupabaseSnapshot(supabase, snapshot), 450);
     return () => window.clearTimeout(timer);
-  }, [contentItems, dataSource, history, isHydrated, leads, tasks, templates]);
+  }, [contentItems, dataSource, history, isHydrated, leads, settings, tasks, templates]);
 
   useEffect(() => {
     if (!toast) return;
@@ -635,6 +779,7 @@ export default function SalesOs() {
   }, [cityFilter, leads, nicheFilter, packageFilter, query, statusFilter]);
 
   const cities = Array.from(new Set(leads.map((lead) => lead.city))).sort();
+  const activePackages = settings.packages.filter((item) => !item.archived);
   const selectedLead = leads.find((lead) => lead.id === selectedLeadId) ?? null;
   const stats = {
     total: leads.length,
@@ -842,11 +987,12 @@ export default function SalesOs() {
             }
           />
         ) : active === "dashboard" ? (
-          <Dashboard stats={stats} leads={leads} tasks={tasks} onDone={markTaskDone} onOpenLead={setSelectedLeadId} onStatus={updateLeadStatus} />
+          <Dashboard stats={stats} leads={leads} tasks={tasks} packages={activePackages} dailyTargets={settings.dailyTargets} onDailyTargetsChange={(dailyTargets) => setSettings((current) => ({ ...current, dailyTargets }))} onDone={markTaskDone} onOpenLead={setSelectedLeadId} onStatus={updateLeadStatus} />
         ) : active === "leads" ? (
           <LeadsPage
             leads={filteredLeads}
             allLeads={leads}
+            packages={activePackages}
             query={query}
             setQuery={setQuery}
             statusFilter={statusFilter}
@@ -861,12 +1007,13 @@ export default function SalesOs() {
             onOpen={setSelectedLeadId}
             onEdit={(lead) => { setEditingLead(lead); setIsLeadFormOpen(true); }}
             onDelete={deleteLead}
+            onDuplicate={(lead) => saveLead({ ...lead, id: newId(), business_name: `${lead.business_name} копія`, created_at: today, updated_at: today })}
             onStatus={updateLeadStatus}
           />
         ) : active === "tasks" ? (
           <TasksPage tasks={tasks} leads={leads} onDone={markTaskDone} setTasks={setTasks} />
         ) : active === "followups" ? (
-          <FollowupsPage leads={leads} onDone={(id) => updateLeadStatus(id, "Проаналізований")} onOpen={setSelectedLeadId} />
+          <FollowupsPage leads={leads} setLeads={setLeads} setTasks={setTasks} onDone={(id) => updateLeadStatus(id, "Проаналізований")} onOpen={setSelectedLeadId} />
         ) : active === "calendar" ? (
           <CalendarPage leads={leads} tasks={tasks} contentItems={contentItems} />
         ) : active === "content" ? (
@@ -886,13 +1033,14 @@ export default function SalesOs() {
         ) : active === "analytics" ? (
           <AnalyticsPage leads={leads} />
         ) : (
-          <SettingsPage />
+          <SettingsPage settings={settings} onChange={setSettings} />
         )}
       </section>
 
       {isLeadFormOpen && (
         <LeadForm
           lead={editingLead}
+          packages={activePackages}
           onClose={() => { setIsLeadFormOpen(false); setEditingLead(null); }}
           onSave={saveLead}
         />
@@ -911,10 +1059,13 @@ function Badge({ status }: { status: LeadStatus }) {
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusStyles[status]}`}>{status}</span>;
 }
 
-function Dashboard({ stats, leads, tasks, onDone, onOpenLead, onStatus }: {
+function Dashboard({ stats, leads, tasks, packages, dailyTargets, onDailyTargetsChange, onDone, onOpenLead, onStatus }: {
   stats: Record<string, number>;
   leads: Lead[];
   tasks: Task[];
+  packages: PackageItem[];
+  dailyTargets: DailyTarget[];
+  onDailyTargetsChange: (targets: DailyTarget[]) => void;
   onDone: (id: string) => void;
   onOpenLead: (id: string) => void;
   onStatus: (id: string, status: LeadStatus) => void;
@@ -945,6 +1096,23 @@ function Dashboard({ stats, leads, tasks, onDone, onOpenLead, onStatus }: {
 
       <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
         <Card>
+          <SectionTitle title="Daily plan" />
+          <div className="mb-4 space-y-2">
+            {dailyTargets.map((target) => (
+              <label key={target.id} className="flex items-center justify-between gap-3 rounded-lg border border-line bg-panel2 p-3">
+                <span className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-blue"
+                    checked={target.done}
+                    onChange={(event) => onDailyTargetsChange(dailyTargets.map((item) => (item.id === target.id ? { ...item, done: event.target.checked } : item)))}
+                  />
+                  <span>{target.title}</span>
+                </span>
+                <span className="rounded-md bg-ink px-2 py-1 text-xs text-blue">{target.target}</span>
+              </label>
+            ))}
+          </div>
           <SectionTitle title="Завдання на сьогодні" />
           <div className="space-y-2">
             {todayTasks.map((task) => (
@@ -1021,6 +1189,7 @@ function Dashboard({ stats, leads, tasks, onDone, onOpenLead, onStatus }: {
 function LeadsPage(props: {
   leads: Lead[];
   allLeads: Lead[];
+  packages: PackageItem[];
   query: string;
   setQuery: (value: string) => void;
   statusFilter: string;
@@ -1035,6 +1204,7 @@ function LeadsPage(props: {
   onOpen: (id: string) => void;
   onEdit: (lead: Lead) => void;
   onDelete: (id: string) => void;
+  onDuplicate: (lead: Lead) => void;
   onStatus: (id: string, status: LeadStatus) => void;
 }) {
   return (
@@ -1047,7 +1217,7 @@ function LeadsPage(props: {
         <Select value={props.statusFilter} onChange={props.setStatusFilter} options={["Усі", ...statuses]} />
         <Select value={props.nicheFilter} onChange={props.setNicheFilter} options={["Усі", ...niches]} />
         <Select value={props.cityFilter} onChange={props.setCityFilter} options={["Усі", ...props.cities]} />
-        <Select value={props.packageFilter} onChange={props.setPackageFilter} options={["Усі", ...packages.map((pkg) => pkg.name)]} />
+        <Select value={props.packageFilter} onChange={props.setPackageFilter} options={["Усі", ...props.packages.map((pkg) => pkg.name)]} />
       </div>
       <DataTable
         headers={["Бізнес", "Ніша", "Місто", "Контакт", "Статус", "Пакет", "Сума", "Дії"]}
@@ -1066,7 +1236,8 @@ function LeadsPage(props: {
               </button>
             ))}
             <IconButton label="Редагувати" onClick={() => props.onEdit(lead)}><Edit3 className="h-4 w-4" /></IconButton>
-            <IconButton label="Видалити" onClick={() => props.onDelete(lead.id)}><Trash2 className="h-4 w-4" /></IconButton>
+            <IconButton label="Дублювати" onClick={() => props.onDuplicate(lead)}><Copy className="h-4 w-4" /></IconButton>
+            <IconButton label="Видалити" onClick={() => window.confirm("Видалити лід?") && props.onDelete(lead.id)}><Trash2 className="h-4 w-4" /></IconButton>
           </div>
         ])}
       />
@@ -1161,6 +1332,7 @@ function LeadDetail({ lead, history, onBack, onStatus, onEdit, onTask }: {
 function TasksPage({ tasks, leads, onDone, setTasks }: { tasks: Task[]; leads: Lead[]; onDone: (id: string) => void; setTasks: React.Dispatch<React.SetStateAction<Task[]>> }) {
   const [typeFilter, setTypeFilter] = useState("Усі");
   const [statusFilter, setStatusFilter] = useState("Усі");
+  const [editing, setEditing] = useState<Task | null>(null);
   const filtered = tasks.filter((task) => (typeFilter === "Усі" || task.type === typeFilter) && (statusFilter === "Усі" || task.status === statusFilter));
   const groups = [
     ["Прострочені", filtered.filter((task) => task.due_date < today && task.status !== "Done")],
@@ -1177,22 +1349,7 @@ function TasksPage({ tasks, leads, onDone, setTasks }: { tasks: Task[]; leads: L
           <Select value={statusFilter} onChange={setStatusFilter} options={["Усі", "To do", "In progress", "Done", "Cancelled"]} />
           <button
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-white px-4 font-semibold text-ink"
-            onClick={() =>
-              setTasks((current) => [
-                {
-                  id: newId(),
-                  title: "Нова задача",
-                  description: "Опишіть дію",
-                  type: "admin",
-                  due_date: today,
-                  status: "To do",
-                  priority: "Medium",
-                  created_at: today,
-                  updated_at: today
-                },
-                ...current
-              ])
-            }
+            onClick={() => setEditing(newTask())}
           >
             <Plus className="h-4 w-4" />
             Додати задачу
@@ -1209,32 +1366,85 @@ function TasksPage({ tasks, leads, onDone, setTasks }: { tasks: Task[]; leads: L
               task.type,
               leads.find((lead) => lead.id === task.related_lead_id)?.business_name ?? "—",
               task.due_date,
-              task.status,
+              <Select key="status" value={task.status} onChange={(status) => setTasks((current) => current.map((item) => (item.id === task.id ? { ...item, status: status as Task["status"], updated_at: today } : item)))} options={["To do", "In progress", "Done", "Cancelled"]} />,
               task.priority,
-              <IconButton key="done" label="Виконано" onClick={() => onDone(task.id)}><Check className="h-4 w-4" /></IconButton>
+              <div key="actions" className="flex gap-1">
+                <IconButton label="Редагувати" onClick={() => setEditing(task)}><Edit3 className="h-4 w-4" /></IconButton>
+                <IconButton label="Виконано" onClick={() => onDone(task.id)}><Check className="h-4 w-4" /></IconButton>
+                <IconButton label="Видалити" onClick={() => window.confirm("Видалити задачу?") && setTasks((current) => current.filter((item) => item.id !== task.id))}><Trash2 className="h-4 w-4" /></IconButton>
+              </div>
             ])}
           />
         </Card>
       ))}
+      {editing ? (
+        <TaskEditor
+          task={editing}
+          leads={leads}
+          onCancel={() => setEditing(null)}
+          onSave={(task) => {
+            setTasks((current) => (current.some((item) => item.id === task.id) ? current.map((item) => (item.id === task.id ? task : item)) : [task, ...current]));
+            setEditing(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
 
-function FollowupsPage({ leads, onDone, onOpen }: { leads: Lead[]; onDone: (id: string) => void; onOpen: (id: string) => void }) {
+function newTask(overrides: Partial<Task> = {}): Task {
+  return {
+    id: newId(),
+    title: "Нова задача",
+    description: "",
+    type: "admin",
+    related_lead_id: "",
+    due_date: today,
+    status: "To do",
+    priority: "Medium",
+    created_at: today,
+    updated_at: today,
+    ...overrides
+  };
+}
+
+function FollowupsPage({
+  leads,
+  setLeads,
+  setTasks,
+  onDone,
+  onOpen
+}: {
+  leads: Lead[];
+  setLeads: React.Dispatch<React.SetStateAction<Lead[]>>;
+  setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
+  onDone: (id: string) => void;
+  onOpen: (id: string) => void;
+}) {
   const items = leads.filter((lead) => lead.follow_up_date && lead.status !== "Виграно");
+  const updateLead = (id: string, patch: Partial<Lead>) => setLeads((current) => current.map((lead) => (lead.id === id ? { ...lead, ...patch, updated_at: today } : lead)));
   return (
     <Card>
       <SectionTitle title="Усі follow-up" />
       <DataTable
-        headers={["Бізнес", "Ніша", "Місто", "Статус", "Наступна дія", "Дата", ""]}
+        headers={["Бізнес", "Статус", "Наступна дія", "Дата", "Перенести", ""]}
         rows={items.map((lead) => [
           <button key="name" className="font-semibold text-blue" onClick={() => onOpen(lead.id)}>{lead.business_name}</button>,
-          lead.niche,
-          lead.city,
           <Badge key="status" status={lead.status} />,
-          lead.next_action,
-          lead.follow_up_date,
-          <IconButton key="done" label="Виконано" onClick={() => onDone(lead.id)}><Check className="h-4 w-4" /></IconButton>
+          <Input key="action" label="" value={lead.next_action} onChange={(value) => updateLead(lead.id, { next_action: value })} />,
+          <Input key="date" label="" value={lead.follow_up_date} onChange={(value) => updateLead(lead.id, { follow_up_date: value })} />,
+          <div key="postpone" className="flex flex-wrap gap-1">
+            {[1, 3, 7, 30].map((days) => (
+              <button key={days} className="rounded-md border border-line px-2 py-1 text-xs hover:bg-white hover:text-ink" onClick={() => updateLead(lead.id, { follow_up_date: addDays(lead.follow_up_date || today, days) })}>
+                +{days}
+              </button>
+            ))}
+          </div>,
+          <div key="actions" className="flex gap-1">
+            <IconButton label="Створити follow-up task" onClick={() => setTasks((current) => [newTask({ title: `Follow-up: ${lead.business_name}`, type: "follow_up", related_lead_id: lead.id, due_date: lead.follow_up_date || today, priority: "High" }), ...current])}><Plus className="h-4 w-4" /></IconButton>
+            <IconButton label="Виконано" onClick={() => onDone(lead.id)}><Check className="h-4 w-4" /></IconButton>
+            <IconButton label="Видалити дату" onClick={() => updateLead(lead.id, { follow_up_date: "" })}><Trash2 className="h-4 w-4" /></IconButton>
+          </div>
         ])}
       />
     </Card>
@@ -1267,40 +1477,62 @@ function CalendarPage({ leads, tasks, contentItems }: { leads: Lead[]; tasks: Ta
 }
 
 function ContentPage({ items, setItems }: { items: ContentItem[]; setItems: React.Dispatch<React.SetStateAction<ContentItem[]>> }) {
+  const [editing, setEditing] = useState<ContentItem | null>(null);
   return (
     <Card>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <SectionTitle title="Контент-план" />
         <button
           className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-white px-4 font-semibold text-ink"
-          onClick={() =>
-            setItems((current) => [
-              {
-                id: newId(),
-                date: today,
-                topic: "Нова тема",
-                hook: "",
-                key_points: "",
-                CTA: "",
-                target_niche: "",
-                status: "Ідея",
-                platform: "Instagram",
-                notes: ""
-              },
-              ...current
-            ])
-          }
+          onClick={() => setEditing(newContentItem())}
         >
           <Plus className="h-4 w-4" />
           Додати
         </button>
       </div>
       <DataTable
-        headers={["Дата", "Тема", "Хук", "Ключові пункти", "CTA", "Ніша", "Статус", "Платформа", "Нотатки"]}
-        rows={items.map((item) => [item.date, item.topic, item.hook, item.key_points, item.CTA, item.target_niche, item.status, item.platform, item.notes])}
+        headers={["Дата", "Тема", "Хук", "Ніша", "Статус", "Платформа", "Дії"]}
+        rows={items.map((item) => [
+          item.date,
+          item.topic,
+          item.hook,
+          item.target_niche,
+          item.status,
+          item.platform,
+          <div key="actions" className="flex gap-1">
+            <IconButton label="Редагувати" onClick={() => setEditing(item)}><Edit3 className="h-4 w-4" /></IconButton>
+            <IconButton label="Дублювати" onClick={() => setItems((current) => [{ ...item, id: newId(), topic: `${item.topic} копія`, date: today }, ...current])}><Copy className="h-4 w-4" /></IconButton>
+            <IconButton label="Видалити" onClick={() => window.confirm("Видалити контент?") && setItems((current) => current.filter((currentItem) => currentItem.id !== item.id))}><Trash2 className="h-4 w-4" /></IconButton>
+          </div>
+        ])}
       />
+      {editing ? (
+        <ContentEditor
+          item={editing}
+          onCancel={() => setEditing(null)}
+          onSave={(item) => {
+            setItems((current) => (current.some((currentItem) => currentItem.id === item.id) ? current.map((currentItem) => (currentItem.id === item.id ? item : currentItem)) : [item, ...current]));
+            setEditing(null);
+          }}
+        />
+      ) : null}
     </Card>
   );
+}
+
+function newContentItem(): ContentItem {
+  return {
+    id: newId(),
+    date: today,
+    topic: "Нова тема",
+    hook: "",
+    key_points: "",
+    CTA: "",
+    target_niche: "",
+    status: "Ідея",
+    platform: "Instagram",
+    notes: ""
+  };
 }
 
 function TemplatesPage({
@@ -1325,7 +1557,7 @@ function TemplatesPage({
     <div className="space-y-4">
       <button
         className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-white px-4 font-semibold text-ink"
-        onClick={() => setTemplates((current) => [{ id: newId(), title: "Новий шаблон", category: "Перше повідомлення", body: "" }, ...current])}
+        onClick={() => setTemplates((current) => [{ id: newId(), title: "Новий шаблон", category: templateCategories[0], body: "" }, ...current])}
       >
         <Plus className="h-4 w-4" />
         Створити шаблон
@@ -1344,8 +1576,9 @@ function TemplatesPage({
                   </div>
                   <div className="flex gap-1">
                     <IconButton label="Копіювати" onClick={() => { void navigator.clipboard?.writeText(template.body); onCopied(); }}><Copy className="h-4 w-4" /></IconButton>
+                    <IconButton label="Дублювати" onClick={() => setTemplates((current) => [{ ...template, id: newId(), title: `${template.title} копія` }, ...current])}><Copy className="h-4 w-4" /></IconButton>
                     <IconButton label="Редагувати" onClick={() => setEditing(template)}><Edit3 className="h-4 w-4" /></IconButton>
-                    <IconButton label="Видалити" onClick={() => onDelete(template.id)}><Trash2 className="h-4 w-4" /></IconButton>
+                    <IconButton label="Видалити" onClick={() => window.confirm("Видалити шаблон?") && onDelete(template.id)}><Trash2 className="h-4 w-4" /></IconButton>
                   </div>
                 </div>
                 <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-300">{template.body}</p>
@@ -1392,44 +1625,90 @@ function AnalyticsPage({ leads }: { leads: Lead[] }) {
   );
 }
 
-function SettingsPage() {
-  const kpis = ["10 нових лідів", "10 перших повідомлень", "5 follow-up", "1 контент-одиниця", "1 година CRM / продажів"];
+function SettingsPage({ settings, onChange }: { settings: AppSettings; onChange: React.Dispatch<React.SetStateAction<AppSettings>> }) {
+  const updateBusiness = <K extends keyof BusinessProfile>(key: K, value: BusinessProfile[K]) =>
+    onChange((current) => ({ ...current, business: { ...current.business, [key]: value } }));
+  const updateKpi = <K extends keyof KpiTargets>(key: K, value: KpiTargets[K]) =>
+    onChange((current) => ({ ...current, kpiTargets: { ...current.kpiTargets, [key]: value } }));
+  const updatePackage = (id: string, patch: Partial<PackageItem>) =>
+    onChange((current) => ({ ...current, packages: current.packages.map((pkg) => (pkg.id === id ? { ...pkg, ...patch } : pkg)) }));
+  const updateDaily = (id: string, patch: Partial<DailyTarget>) =>
+    onChange((current) => ({ ...current, dailyTargets: current.dailyTargets.map((target) => (target.id === id ? { ...target, ...patch } : target)) }));
+
   return (
     <div className="grid gap-5 xl:grid-cols-2">
       <Card>
-        <SectionTitle title="Проєкт" />
+        <SectionTitle title="Business profile" />
         <div className="space-y-3">
-          <Input label="Назва проєкту" defaultValue="Hugo Media Sales OS" />
-          <Input label="Власник" defaultValue="Сергій Гальчук / Hugo" />
-          <Input label="Email" defaultValue="hugo@example.com" />
-          <Input label="Валюта" defaultValue="EUR" />
+          <Input label="Назва платформи" value={settings.business.platform_name} onChange={(value) => updateBusiness("platform_name", value)} />
+          <Input label="Власник" value={settings.business.owner_name} onChange={(value) => updateBusiness("owner_name", value)} />
+          <Textarea label="Позиціонування" value={settings.business.positioning_line} onChange={(value) => updateBusiness("positioning_line", value)} />
+          <Textarea label="Аудиторія" value={settings.business.audience_description} onChange={(value) => updateBusiness("audience_description", value)} />
+          <Input label="Website URL" value={settings.business.website_url} onChange={(value) => updateBusiness("website_url", value)} />
+          <Input label="Валюта" value={settings.business.currency} onChange={(value) => updateBusiness("currency", value)} />
+          <Input label="Місто за замовчуванням" value={settings.business.default_city} onChange={(value) => updateBusiness("default_city", value)} />
+          <Input label="Мова" value={settings.business.default_language} onChange={(value) => updateBusiness("default_language", value)} />
         </div>
       </Card>
       <Card>
-        <SectionTitle title="KPI на день" />
+        <SectionTitle title="Daily targets" />
         <div className="space-y-2">
-          {kpis.map((kpi) => (
-            <label key={kpi} className="flex items-center gap-3 rounded-lg border border-line bg-panel2 p-3">
-              <input type="checkbox" className="h-4 w-4 accent-blue" defaultChecked />
-              <span>{kpi}</span>
-            </label>
+          {settings.dailyTargets.map((target) => (
+            <div key={target.id} className="grid gap-2 rounded-lg border border-line bg-panel2 p-3 md:grid-cols-[1fr_100px_auto]">
+              <Input label="Назва" value={target.title} onChange={(value) => updateDaily(target.id, { title: value })} />
+              <Input label="Ціль" value={String(target.target)} onChange={(value) => updateDaily(target.id, { target: Number(value) || 0 })} />
+              <div className="flex items-end gap-1">
+                <IconButton label={target.done ? "Повернути" : "Виконано"} onClick={() => updateDaily(target.id, { done: !target.done })}><Check className="h-4 w-4" /></IconButton>
+                <IconButton label="Видалити" onClick={() => onChange((current) => ({ ...current, dailyTargets: current.dailyTargets.filter((item) => item.id !== target.id) }))}><Trash2 className="h-4 w-4" /></IconButton>
+              </div>
+            </div>
           ))}
+          <div className="flex flex-wrap gap-2">
+            <button className="rounded-lg bg-white px-4 py-2 font-semibold text-ink" onClick={() => onChange((current) => ({ ...current, dailyTargets: [...current.dailyTargets, { id: newId(), title: "Нова daily задача", target: 1, done: false, custom: true }] }))}>Додати daily task</button>
+            <button className="rounded-lg border border-line px-4 py-2 font-semibold" onClick={() => onChange((current) => ({ ...current, dailyTargets: current.dailyTargets.map((target) => ({ ...target, done: false })) }))}>Скинути прогрес</button>
+          </div>
         </div>
       </Card>
       <Card>
         <SectionTitle title="Пакети" />
-        <div className="space-y-2">{packages.map((pkg) => <Input key={pkg.name} label={pkg.name} defaultValue={money(pkg.value)} />)}</div>
+        <div className="space-y-3">
+          {settings.packages.map((pkg) => (
+            <div key={pkg.id} className={`space-y-2 rounded-lg border border-line bg-panel2 p-3 ${pkg.archived ? "opacity-60" : ""}`}>
+              <div className="grid gap-2 md:grid-cols-[1fr_120px_120px]">
+                <Input label="Назва" value={pkg.name} onChange={(value) => updatePackage(pkg.id, { name: value })} />
+                <Input label="Ціна" value={String(pkg.value)} onChange={(value) => updatePackage(pkg.id, { value: Number(value) || 0 })} />
+                <Input label="Колір" value={pkg.color} onChange={(value) => updatePackage(pkg.id, { color: value })} />
+              </div>
+              <Textarea label="Опис" value={pkg.description} onChange={(value) => updatePackage(pkg.id, { description: value })} />
+              <div className="flex flex-wrap gap-2">
+                <button className="rounded-lg border border-line px-3 py-2 text-sm font-semibold" onClick={() => updatePackage(pkg.id, { archived: !pkg.archived })}>{pkg.archived ? "Відновити" : "Архівувати"}</button>
+                <button className="rounded-lg border border-line px-3 py-2 text-sm font-semibold" onClick={() => window.confirm("Видалити пакет?") && onChange((current) => ({ ...current, packages: current.packages.filter((item) => item.id !== pkg.id) }))}>Видалити</button>
+              </div>
+            </div>
+          ))}
+          <button className="rounded-lg bg-white px-4 py-2 font-semibold text-ink" onClick={() => onChange((current) => ({ ...current, packages: [...current.packages, { id: newId(), name: "Новий пакет", value: 0, description: "", color: "#38bdf8", archived: false }] }))}>Додати пакет</button>
+        </div>
       </Card>
       <Card>
-        <SectionTitle title="Статуси та ніші" />
-        <p className="text-sm leading-6 text-slate-300">{statuses.join(" · ")}</p>
-        <p className="mt-4 text-sm leading-6 text-slate-300">{niches.join(" · ")}</p>
+        <SectionTitle title="KPI targets" />
+        <div className="grid gap-3 md:grid-cols-2">
+          <Input label="Weekly new leads" value={String(settings.kpiTargets.weekly_new_leads)} onChange={(value) => updateKpi("weekly_new_leads", Number(value) || 0)} />
+          <Input label="Weekly messages" value={String(settings.kpiTargets.weekly_messages)} onChange={(value) => updateKpi("weekly_messages", Number(value) || 0)} />
+          <Input label="Weekly follow-ups" value={String(settings.kpiTargets.weekly_followups)} onChange={(value) => updateKpi("weekly_followups", Number(value) || 0)} />
+          <Input label="Weekly calls" value={String(settings.kpiTargets.weekly_calls)} onChange={(value) => updateKpi("weekly_calls", Number(value) || 0)} />
+          <Input label="Weekly proposals" value={String(settings.kpiTargets.weekly_proposals)} onChange={(value) => updateKpi("weekly_proposals", Number(value) || 0)} />
+          <Input label="Weekly closed deals" value={String(settings.kpiTargets.weekly_closed_deals)} onChange={(value) => updateKpi("weekly_closed_deals", Number(value) || 0)} />
+          <Input label="Monthly revenue" value={String(settings.kpiTargets.monthly_revenue)} onChange={(value) => updateKpi("monthly_revenue", Number(value) || 0)} />
+          <Textarea label="30-day goal" value={settings.kpiTargets.goal_30_day} onChange={(value) => updateKpi("goal_30_day", value)} />
+          <Textarea label="60-day goal" value={settings.kpiTargets.goal_60_day} onChange={(value) => updateKpi("goal_60_day", value)} />
+          <Textarea label="90-day goal" value={settings.kpiTargets.goal_90_day} onChange={(value) => updateKpi("goal_90_day", value)} />
+        </div>
       </Card>
     </div>
   );
 }
 
-function LeadForm({ lead, onClose, onSave }: { lead: Lead | null; onClose: () => void; onSave: (lead: Lead) => void }) {
+function LeadForm({ lead, packages, onClose, onSave }: { lead: Lead | null; packages: PackageItem[]; onClose: () => void; onSave: (lead: Lead) => void }) {
   const [form, setForm] = useState<Lead>(
     lead ?? {
       id: newId(),
@@ -1446,8 +1725,8 @@ function LeadForm({ lead, onClose, onSave }: { lead: Lead | null; onClose: () =>
       weak_point: "",
       offer_angle: "",
       status: "Новий",
-      package_interest: packages[0].name,
-      deal_value: 300,
+      package_interest: packages[0]?.name ?? "",
+      deal_value: packages[0]?.value ?? 0,
       first_contact_date: today,
       last_contact_date: today,
       follow_up_date: "",
@@ -1482,7 +1761,10 @@ function LeadForm({ lead, onClose, onSave }: { lead: Lead | null; onClose: () =>
           <Input label="Email" value={form.email} onChange={(value) => setField("email", value)} />
           <Input label="Канал контакту" value={form.contact_channel} onChange={(value) => setField("contact_channel", value)} />
           <Select label="Статус" value={form.status} onChange={(value) => setField("status", value as LeadStatus)} options={statuses} />
-          <Select label="Пакет" value={form.package_interest} onChange={(value) => setField("package_interest", value)} options={packages.map((pkg) => pkg.name)} />
+          <Select label="Пакет" value={form.package_interest} onChange={(value) => {
+            const selectedPackage = packages.find((pkg) => pkg.name === value);
+            setForm((current) => ({ ...current, package_interest: value, deal_value: selectedPackage?.value ?? current.deal_value }));
+          }} options={packages.map((pkg) => pkg.name)} />
           <Input label="Сума" value={String(form.deal_value)} onChange={(value) => setField("deal_value", Number(value) || 0)} />
           <Input label="Follow-up date" value={form.follow_up_date} onChange={(value) => setField("follow_up_date", value)} />
           <Textarea label="Слабке місце" value={form.weak_point} onChange={(value) => setField("weak_point", value)} />
@@ -1499,12 +1781,72 @@ function LeadForm({ lead, onClose, onSave }: { lead: Lead | null; onClose: () =>
   );
 }
 
+function TaskEditor({ task, leads, onSave, onCancel }: { task: Task; leads: Lead[]; onSave: (task: Task) => void; onCancel: () => void }) {
+  const [draft, setDraft] = useState(task);
+  const setField = <K extends keyof Task>(key: K, value: Task[K]) => setDraft((current) => ({ ...current, [key]: value, updated_at: today }));
+
+  return (
+    <div className="fixed inset-0 z-40 overflow-y-auto bg-black/70 p-4">
+      <div className="mx-auto max-w-3xl rounded-lg border border-line bg-panel p-5 shadow-glow">
+        <div className="mb-5 flex items-center justify-between gap-3">
+          <h2 className="text-2xl font-black">Редагувати задачу</h2>
+          <IconButton label="Закрити" onClick={onCancel}><X className="h-4 w-4" /></IconButton>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Input label="Назва" value={draft.title} onChange={(value) => setField("title", value)} />
+          <Select label="Тип" value={draft.type} onChange={(value) => setField("type", value as Task["type"])} options={["outreach", "follow_up", "call", "proposal", "content", "shoot", "admin"]} />
+          <Input label="Дата" value={draft.due_date} onChange={(value) => setField("due_date", value)} />
+          <Select label="Статус" value={draft.status} onChange={(value) => setField("status", value as Task["status"])} options={["To do", "In progress", "Done", "Cancelled"]} />
+          <Select label="Пріоритет" value={draft.priority} onChange={(value) => setField("priority", value as Task["priority"])} options={["Low", "Medium", "High"]} />
+          <Select label="Лід" value={draft.related_lead_id ?? ""} onChange={(value) => setField("related_lead_id", value)} options={["", ...leads.map((lead) => lead.id)]} />
+          <Textarea label="Опис" value={draft.description} onChange={(value) => setField("description", value)} />
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button className="rounded-lg border border-line px-4 py-2 font-semibold" onClick={onCancel}>Скасувати</button>
+          <button className="rounded-lg bg-white px-4 py-2 font-semibold text-ink" onClick={() => onSave(draft)}>Зберегти</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ContentEditor({ item, onSave, onCancel }: { item: ContentItem; onSave: (item: ContentItem) => void; onCancel: () => void }) {
+  const [draft, setDraft] = useState(item);
+  const setField = <K extends keyof ContentItem>(key: K, value: ContentItem[K]) => setDraft((current) => ({ ...current, [key]: value }));
+
+  return (
+    <div className="fixed inset-0 z-40 overflow-y-auto bg-black/70 p-4">
+      <div className="mx-auto max-w-4xl rounded-lg border border-line bg-panel p-5 shadow-glow">
+        <div className="mb-5 flex items-center justify-between gap-3">
+          <h2 className="text-2xl font-black">Редагувати контент</h2>
+          <IconButton label="Закрити" onClick={onCancel}><X className="h-4 w-4" /></IconButton>
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Input label="Дата" value={draft.date} onChange={(value) => setField("date", value)} />
+          <Input label="Тема" value={draft.topic} onChange={(value) => setField("topic", value)} />
+          <Input label="Хук" value={draft.hook} onChange={(value) => setField("hook", value)} />
+          <Input label="Ніша" value={draft.target_niche} onChange={(value) => setField("target_niche", value)} />
+          <Select label="Статус" value={draft.status} onChange={(value) => setField("status", value as ContentItem["status"])} options={["Ідея", "Заплановано", "Записано", "Змонтовано", "Опубліковано", "Архів"]} />
+          <Select label="Платформа" value={draft.platform} onChange={(value) => setField("platform", value as ContentItem["platform"])} options={["TikTok", "Instagram", "Facebook", "YouTube Shorts", "Telegram"]} />
+          <Textarea label="Ключові пункти" value={draft.key_points} onChange={(value) => setField("key_points", value)} />
+          <Textarea label="CTA" value={draft.CTA} onChange={(value) => setField("CTA", value)} />
+          <Textarea label="Нотатки" value={draft.notes} onChange={(value) => setField("notes", value)} />
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button className="rounded-lg border border-line px-4 py-2 font-semibold" onClick={onCancel}>Скасувати</button>
+          <button className="rounded-lg bg-white px-4 py-2 font-semibold text-ink" onClick={() => onSave(draft)}>Зберегти</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TemplateEditor({ template, onSave, onCancel }: { template: Template; onSave: (template: Template) => void; onCancel: () => void }) {
   const [draft, setDraft] = useState(template);
   return (
     <div className="space-y-3">
       <Input label="Назва" value={draft.title} onChange={(value) => setDraft((current) => ({ ...current, title: value }))} />
-      <Input label="Категорія" value={draft.category} onChange={(value) => setDraft((current) => ({ ...current, category: value }))} />
+      <Select label="Категорія" value={draft.category} onChange={(value) => setDraft((current) => ({ ...current, category: value }))} options={templateCategories} />
       <Textarea label="Текст" value={draft.body} onChange={(value) => setDraft((current) => ({ ...current, body: value }))} />
       <div className="flex gap-2">
         <button className="rounded-lg bg-white px-4 py-2 font-semibold text-ink" onClick={() => onSave(draft)}>Зберегти</button>
