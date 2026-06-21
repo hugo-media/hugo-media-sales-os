@@ -24,14 +24,14 @@ pnpm dev
 1. Створіть Supabase project.
 2. В SQL editor виконайте `supabase/schema.sql`.
 3. Для демо-даних виконайте `supabase/seed.sql`.
-4. Коли буде потрібна реальна синхронізація, додайте `.env.local`:
+4. Для реальної синхронізації додайте `.env.local` локально або Environment Variables у Vercel:
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=...
 NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 ```
 
-Поточний MVP працює з локальним станом у браузері, щоб CRM можна було одразу відкрити, перевірити UX і не чекати на налаштування бази.
+Без цих змінних система автоматично працює з локальним збереженням у браузері (`localStorage`), тому зміни не зникають після reload на тому самому пристрої. Коли Supabase env-змінні додані, UI читає і записує `leads`, `tasks`, `content_items`, `templates` і `status_history` у Supabase. Auth/password protection навмисно не додано.
 
 ## Реалізовано
 
@@ -42,6 +42,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 - Follow-up правила при зміні статусів
 - Автостворення задач для КП, дзвінка і виграної угоди
 - Tasks, Follow-ups, Calendar, Content Plan, Scripts/Templates, Analytics, Settings
+- Автозбереження у браузері без auth
+- Supabase sync при наявності `NEXT_PUBLIC_SUPABASE_URL` і `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - Supabase tables: leads, tasks, content_items, templates, status_history, settings
 
 ## Деплой на Vercel

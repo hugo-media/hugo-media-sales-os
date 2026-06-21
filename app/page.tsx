@@ -19,6 +19,7 @@ import {
   Users,
   X
 } from "lucide-react";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { useEffect, useMemo, useState } from "react";
 
 type LeadStatus =
@@ -101,6 +102,16 @@ type HistoryItem = {
   created_at: string;
 };
 
+type CrmSnapshot = {
+  leads: Lead[];
+  tasks: Task[];
+  contentItems: ContentItem[];
+  templates: Template[];
+  history: HistoryItem[];
+};
+
+type ContentRow = Omit<ContentItem, "CTA"> & { cta: string };
+
 const statuses: LeadStatus[] = [
   "Новий",
   "Проаналізований",
@@ -137,6 +148,13 @@ const packages = [
 
 const today = "2026-06-21";
 const tomorrow = "2026-06-22";
+const storageKey = "hugo-media-sales-os:v1";
+
+const leadOneId = "11111111-1111-4111-8111-111111111111";
+const leadTwoId = "22222222-2222-4222-8222-222222222222";
+const leadThreeId = "33333333-3333-4333-8333-333333333333";
+
+const newId = () => crypto.randomUUID();
 
 const addDays = (date: string, days: number) => {
   const next = new Date(`${date}T12:00:00`);
@@ -149,7 +167,7 @@ const money = (value: number) =>
 
 const seedLeads: Lead[] = [
   {
-    id: "lead-1",
+    id: leadOneId,
     business_name: "LegalWay Poland",
     niche: "Легалізація",
     city: "Варшава",
@@ -175,7 +193,7 @@ const seedLeads: Lead[] = [
     updated_at: "2026-06-20"
   },
   {
-    id: "lead-2",
+    id: leadTwoId,
     business_name: "Beauty Pro Krakow",
     niche: "Beauty",
     city: "Краків",
@@ -201,7 +219,7 @@ const seedLeads: Lead[] = [
     updated_at: today
   },
   {
-    id: "lead-3",
+    id: leadThreeId,
     business_name: "AutoHelp Wroclaw",
     niche: "Авто",
     city: "Вроцлав",
@@ -230,7 +248,7 @@ const seedLeads: Lead[] = [
 
 const seedTasks: Task[] = [
   {
-    id: "task-1",
+    id: "44444444-4444-4444-8444-444444444444",
     title: "Знайти 10 нових бізнесів",
     description: "Сфокусуватися на українських бізнесах у Польщі.",
     type: "outreach",
@@ -241,11 +259,11 @@ const seedTasks: Task[] = [
     updated_at: today
   },
   {
-    id: "task-2",
+    id: "55555555-5555-4555-8555-555555555555",
     title: "Зробити follow-up після КП",
     description: "LegalWay Poland чекає на уточнення формату.",
     type: "follow_up",
-    related_lead_id: "lead-1",
+    related_lead_id: leadOneId,
     due_date: today,
     status: "To do",
     priority: "High",
@@ -253,7 +271,7 @@ const seedTasks: Task[] = [
     updated_at: today
   },
   {
-    id: "task-3",
+    id: "66666666-6666-4666-8666-666666666666",
     title: "Підготувати 1 контент-ролик",
     description: "Тема про довіру для українського бізнесу у Польщі.",
     type: "content",
@@ -264,7 +282,7 @@ const seedTasks: Task[] = [
     updated_at: today
   },
   {
-    id: "task-4",
+    id: "77777777-7777-4777-8777-777777777777",
     title: "Оновити CRM",
     description: "Записати відповіді та наступні дії.",
     type: "admin",
@@ -278,7 +296,7 @@ const seedTasks: Task[] = [
 
 const seedContent: ContentItem[] = [
   {
-    id: "content-1",
+    id: "88888888-8888-4888-8888-888888888888",
     date: today,
     topic: "Чому українському бізнесу в Польщі потрібна довіра",
     hook: "Люди не купують у логотипу.",
@@ -290,7 +308,7 @@ const seedContent: ContentItem[] = [
     notes: "Зняти як короткий монолог."
   },
   {
-    id: "content-2",
+    id: "99999999-9999-4999-8999-999999999999",
     date: tomorrow,
     topic: "Люди купують не у бізнесу, а у людини",
     hook: "Ваш продукт можуть скопіювати, вашу історію ні.",
@@ -305,19 +323,19 @@ const seedContent: ContentItem[] = [
 
 const seedTemplates: Template[] = [
   {
-    id: "tpl-1",
+    id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     title: "Перше повідомлення для бізнесу",
     category: "Перше повідомлення",
     body: "Вітаю! Я Hugo, незалежний журналіст і автор Hugo Media Group. Побачив ваш бізнес і думаю, що його можна показати не просто як послугу, а як історію людини за бізнесом."
   },
   {
-    id: "tpl-2",
+    id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
     title: "Follow-up після першого контакту",
     category: "Follow-up 1",
     body: "Вітаю! Повертаюся до нашого контакту. Моя ідея проста: зробити ваш бізнес видимішим через довіру, історію і живу медійну подачу."
   },
   {
-    id: "tpl-3",
+    id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
     title: "Відповідь на дорого",
     category: "Відповідь “дорого”",
     body: "Розумію. Тут оплата не за пост, а за медійну довіру: підготовка, зйомка, подача, історія і матеріали, які бізнес може використовувати далі."
@@ -326,22 +344,22 @@ const seedTemplates: Template[] = [
 
 const seedHistory: HistoryItem[] = [
   {
-    id: "history-1",
-    lead_id: "lead-1",
+    id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    lead_id: leadOneId,
     status: "Написав",
     note: "Перший контакт через Instagram.",
     created_at: "2026-06-17"
   },
   {
-    id: "history-2",
-    lead_id: "lead-1",
+    id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+    lead_id: leadOneId,
     status: "КП відправлено",
     note: "Надіслано коротку пропозицію.",
     created_at: "2026-06-20"
   },
   {
-    id: "history-3",
-    lead_id: "lead-2",
+    id: "ffffffff-ffff-4fff-8fff-ffffffffffff",
+    lead_id: leadTwoId,
     status: "Відповів",
     note: "Попросили деталі пакета.",
     created_at: today
@@ -373,13 +391,87 @@ const nav = [
   { id: "settings", label: "Налаштування", icon: Settings }
 ];
 
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const supabase =
+  supabaseUrl && supabaseAnonKey ? createClient(supabaseUrl, supabaseAnonKey) : null;
+
+const seedSnapshot: CrmSnapshot = {
+  leads: seedLeads,
+  tasks: seedTasks,
+  contentItems: seedContent,
+  templates: seedTemplates,
+  history: seedHistory
+};
+
+function readLocalSnapshot(): CrmSnapshot | null {
+  try {
+    const raw = window.localStorage.getItem(storageKey);
+    return raw ? (JSON.parse(raw) as CrmSnapshot) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeLocalSnapshot(snapshot: CrmSnapshot) {
+  window.localStorage.setItem(storageKey, JSON.stringify(snapshot));
+}
+
+function contentToRow(item: ContentItem): ContentRow {
+  const { CTA, ...rest } = item;
+  return { ...rest, cta: CTA };
+}
+
+function rowToContent(item: ContentRow): ContentItem {
+  const { cta, ...rest } = item;
+  return { ...rest, CTA: cta ?? "" };
+}
+
+function cleanTask(task: Task) {
+  return { ...task, related_lead_id: task.related_lead_id || null };
+}
+
+async function fetchSupabaseSnapshot(client: SupabaseClient): Promise<CrmSnapshot | null> {
+  const [leads, tasks, contentItems, templates, history] = await Promise.all([
+    client.from("leads").select("*").order("created_at", { ascending: false }),
+    client.from("tasks").select("*").order("due_date", { ascending: true }),
+    client.from("content_items").select("*").order("date", { ascending: true }),
+    client.from("templates").select("*").order("created_at", { ascending: false }),
+    client.from("status_history").select("*").order("created_at", { ascending: false })
+  ]);
+
+  if (leads.error || tasks.error || contentItems.error || templates.error || history.error) {
+    return null;
+  }
+
+  return {
+    leads: (leads.data ?? []) as Lead[],
+    tasks: (tasks.data ?? []) as Task[],
+    contentItems: ((contentItems.data ?? []) as ContentRow[]).map(rowToContent),
+    templates: (templates.data ?? []) as Template[],
+    history: (history.data ?? []) as HistoryItem[]
+  };
+}
+
+function syncSupabaseSnapshot(client: SupabaseClient, snapshot: CrmSnapshot) {
+  void Promise.all([
+    snapshot.leads.length ? client.from("leads").upsert(snapshot.leads) : Promise.resolve(),
+    snapshot.tasks.length ? client.from("tasks").upsert(snapshot.tasks.map(cleanTask)) : Promise.resolve(),
+    snapshot.contentItems.length ? client.from("content_items").upsert(snapshot.contentItems.map(contentToRow)) : Promise.resolve(),
+    snapshot.templates.length ? client.from("templates").upsert(snapshot.templates) : Promise.resolve(),
+    snapshot.history.length ? client.from("status_history").upsert(snapshot.history) : Promise.resolve()
+  ]);
+}
+
 export default function SalesOs() {
   const [active, setActive] = useState("dashboard");
-  const [leads, setLeads] = useState(seedLeads);
-  const [tasks, setTasks] = useState(seedTasks);
-  const [contentItems, setContentItems] = useState(seedContent);
-  const [templates, setTemplates] = useState(seedTemplates);
-  const [history, setHistory] = useState(seedHistory);
+  const [leads, setLeads] = useState(seedSnapshot.leads);
+  const [tasks, setTasks] = useState(seedSnapshot.tasks);
+  const [contentItems, setContentItems] = useState(seedSnapshot.contentItems);
+  const [templates, setTemplates] = useState(seedSnapshot.templates);
+  const [history, setHistory] = useState(seedSnapshot.history);
+  const [isHydrated, setIsHydrated] = useState(false);
+  const [dataSource, setDataSource] = useState<"local" | "supabase">(supabase ? "supabase" : "local");
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("Усі");
@@ -389,6 +481,65 @@ export default function SalesOs() {
   const [isLeadFormOpen, setIsLeadFormOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [toast, setToast] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function boot() {
+      const localSnapshot = readLocalSnapshot();
+      const applySnapshot = (snapshot: CrmSnapshot) => {
+        setLeads(snapshot.leads);
+        setTasks(snapshot.tasks);
+        setContentItems(snapshot.contentItems);
+        setTemplates(snapshot.templates);
+        setHistory(snapshot.history);
+      };
+
+      if (localSnapshot) {
+        applySnapshot(localSnapshot);
+      }
+
+      if (supabase) {
+        const remoteSnapshot = await fetchSupabaseSnapshot(supabase);
+        if (cancelled) return;
+
+        if (remoteSnapshot) {
+          const remoteHasData =
+            remoteSnapshot.leads.length ||
+            remoteSnapshot.tasks.length ||
+            remoteSnapshot.contentItems.length ||
+            remoteSnapshot.templates.length ||
+            remoteSnapshot.history.length;
+          const nextSnapshot = remoteHasData ? remoteSnapshot : seedSnapshot;
+          applySnapshot(nextSnapshot);
+          writeLocalSnapshot(nextSnapshot);
+          if (!remoteHasData) {
+            syncSupabaseSnapshot(supabase, nextSnapshot);
+          }
+          setDataSource("supabase");
+        } else {
+          setDataSource("local");
+        }
+      }
+
+      setIsHydrated(true);
+    }
+
+    void boot();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isHydrated) return;
+    const snapshot = { leads, tasks, contentItems, templates, history };
+    writeLocalSnapshot(snapshot);
+
+    if (!supabase || dataSource !== "supabase") return;
+    const timer = window.setTimeout(() => syncSupabaseSnapshot(supabase, snapshot), 450);
+    return () => window.clearTimeout(timer);
+  }, [contentItems, dataSource, history, isHydrated, leads, tasks, templates]);
 
   useEffect(() => {
     if (!toast) return;
@@ -461,7 +612,7 @@ export default function SalesOs() {
 
     setHistory((current) => [
       {
-        id: `history-${Date.now()}`,
+        id: newId(),
         lead_id: leadId,
         status,
         note: "Статус змінено вручну у CRM.",
@@ -480,7 +631,7 @@ export default function SalesOs() {
     if (nextTask) {
       setTasks((current) => [
         {
-          id: `task-${Date.now()}`,
+          id: newId(),
           title: nextTask.title,
           description: "Автоматично створено після зміни статусу ліда.",
           type: nextTask.type,
@@ -511,6 +662,10 @@ export default function SalesOs() {
     setLeads((current) => current.filter((lead) => lead.id !== id));
     setTasks((current) => current.filter((task) => task.related_lead_id !== id));
     setHistory((current) => current.filter((item) => item.lead_id !== id));
+    if (supabase && dataSource === "supabase") {
+      void supabase.from("tasks").delete().eq("related_lead_id", id);
+      void supabase.from("leads").delete().eq("id", id);
+    }
     if (selectedLeadId === id) {
       setSelectedLeadId(null);
       setActive("leads");
@@ -569,6 +724,9 @@ export default function SalesOs() {
           <div>
             <p className="text-sm text-slate-400">Сьогодні: 21 червня 2026</p>
             <h1 className="mt-1 text-2xl font-black sm:text-3xl">{pageTitle}</h1>
+            <p className="mt-2 text-xs text-slate-500">
+              Дані: {dataSource === "supabase" ? "Supabase" : "локальне збереження у браузері"}
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -598,7 +756,7 @@ export default function SalesOs() {
             onTask={() =>
               setTasks((current) => [
                 {
-                  id: `task-${Date.now()}`,
+                  id: newId(),
                   title: `Задача для ${selectedLead.business_name}`,
                   description: selectedLead.next_action,
                   type: "admin",
@@ -644,7 +802,17 @@ export default function SalesOs() {
         ) : active === "content" ? (
           <ContentPage items={contentItems} setItems={setContentItems} />
         ) : active === "scripts" ? (
-          <TemplatesPage templates={templates} setTemplates={setTemplates} onCopied={() => setToast("Текст скопійовано")} />
+          <TemplatesPage
+            templates={templates}
+            setTemplates={setTemplates}
+            onDelete={(id) => {
+              setTemplates((current) => current.filter((item) => item.id !== id));
+              if (supabase && dataSource === "supabase") {
+                void supabase.from("templates").delete().eq("id", id);
+              }
+            }}
+            onCopied={() => setToast("Текст скопійовано")}
+          />
         ) : active === "analytics" ? (
           <AnalyticsPage leads={leads} />
         ) : (
@@ -942,7 +1110,7 @@ function TasksPage({ tasks, leads, onDone, setTasks }: { tasks: Task[]; leads: L
             onClick={() =>
               setTasks((current) => [
                 {
-                  id: `task-${Date.now()}`,
+                  id: newId(),
                   title: "Нова задача",
                   description: "Опишіть дію",
                   type: "admin",
@@ -1038,7 +1206,7 @@ function ContentPage({ items, setItems }: { items: ContentItem[]; setItems: Reac
           onClick={() =>
             setItems((current) => [
               {
-                id: `content-${Date.now()}`,
+                id: newId(),
                 date: today,
                 topic: "Нова тема",
                 hook: "",
@@ -1065,7 +1233,17 @@ function ContentPage({ items, setItems }: { items: ContentItem[]; setItems: Reac
   );
 }
 
-function TemplatesPage({ templates, setTemplates, onCopied }: { templates: Template[]; setTemplates: React.Dispatch<React.SetStateAction<Template[]>>; onCopied: () => void }) {
+function TemplatesPage({
+  templates,
+  setTemplates,
+  onDelete,
+  onCopied
+}: {
+  templates: Template[];
+  setTemplates: React.Dispatch<React.SetStateAction<Template[]>>;
+  onDelete: (id: string) => void;
+  onCopied: () => void;
+}) {
   const [editing, setEditing] = useState<Template | null>(null);
 
   function save(template: Template) {
@@ -1077,7 +1255,7 @@ function TemplatesPage({ templates, setTemplates, onCopied }: { templates: Templ
     <div className="space-y-4">
       <button
         className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-white px-4 font-semibold text-ink"
-        onClick={() => setTemplates((current) => [{ id: `tpl-${Date.now()}`, title: "Новий шаблон", category: "Перше повідомлення", body: "" }, ...current])}
+        onClick={() => setTemplates((current) => [{ id: newId(), title: "Новий шаблон", category: "Перше повідомлення", body: "" }, ...current])}
       >
         <Plus className="h-4 w-4" />
         Створити шаблон
@@ -1097,7 +1275,7 @@ function TemplatesPage({ templates, setTemplates, onCopied }: { templates: Templ
                   <div className="flex gap-1">
                     <IconButton label="Копіювати" onClick={() => { void navigator.clipboard?.writeText(template.body); onCopied(); }}><Copy className="h-4 w-4" /></IconButton>
                     <IconButton label="Редагувати" onClick={() => setEditing(template)}><Edit3 className="h-4 w-4" /></IconButton>
-                    <IconButton label="Видалити" onClick={() => setTemplates((current) => current.filter((item) => item.id !== template.id))}><Trash2 className="h-4 w-4" /></IconButton>
+                    <IconButton label="Видалити" onClick={() => onDelete(template.id)}><Trash2 className="h-4 w-4" /></IconButton>
                   </div>
                 </div>
                 <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-300">{template.body}</p>
@@ -1184,7 +1362,7 @@ function SettingsPage() {
 function LeadForm({ lead, onClose, onSave }: { lead: Lead | null; onClose: () => void; onSave: (lead: Lead) => void }) {
   const [form, setForm] = useState<Lead>(
     lead ?? {
-      id: `lead-${Date.now()}`,
+      id: newId(),
       business_name: "",
       niche: niches[0],
       city: "",
