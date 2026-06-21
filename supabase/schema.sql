@@ -115,3 +115,54 @@ for each row execute function public.set_updated_at();
 drop trigger if exists settings_set_updated_at on public.settings;
 create trigger settings_set_updated_at before update on public.settings
 for each row execute function public.set_updated_at();
+
+grant usage on schema public to anon, authenticated;
+grant select, insert, update, delete on public.leads to anon, authenticated;
+grant select, insert, update, delete on public.tasks to anon, authenticated;
+grant select, insert, update, delete on public.content_items to anon, authenticated;
+grant select, insert, update, delete on public.templates to anon, authenticated;
+grant select, insert, update, delete on public.status_history to anon, authenticated;
+grant select, insert, update, delete on public.settings to anon, authenticated;
+
+alter table public.leads enable row level security;
+alter table public.tasks enable row level security;
+alter table public.content_items enable row level security;
+alter table public.templates enable row level security;
+alter table public.status_history enable row level security;
+alter table public.settings enable row level security;
+
+drop policy if exists "public_crm_access" on public.leads;
+create policy "public_crm_access" on public.leads
+for all to anon, authenticated
+using (true)
+with check (true);
+
+drop policy if exists "public_crm_access" on public.tasks;
+create policy "public_crm_access" on public.tasks
+for all to anon, authenticated
+using (true)
+with check (true);
+
+drop policy if exists "public_crm_access" on public.content_items;
+create policy "public_crm_access" on public.content_items
+for all to anon, authenticated
+using (true)
+with check (true);
+
+drop policy if exists "public_crm_access" on public.templates;
+create policy "public_crm_access" on public.templates
+for all to anon, authenticated
+using (true)
+with check (true);
+
+drop policy if exists "public_crm_access" on public.status_history;
+create policy "public_crm_access" on public.status_history
+for all to anon, authenticated
+using (true)
+with check (true);
+
+drop policy if exists "public_crm_access" on public.settings;
+create policy "public_crm_access" on public.settings
+for all to anon, authenticated
+using (true)
+with check (true);
