@@ -1084,7 +1084,7 @@ export default function SalesOs() {
 
   return (
     <main className="min-h-screen lg:grid lg:grid-cols-[280px_1fr]">
-      <aside className="border-b border-line bg-ink/92 px-4 py-4 lg:sticky lg:top-0 lg:h-screen lg:border-b-0 lg:border-r lg:px-5">
+      <aside className="hidden border-b border-line bg-ink/92 px-4 py-4 lg:sticky lg:top-0 lg:block lg:h-screen lg:border-b-0 lg:border-r lg:px-5">
         <div className="mb-6 flex items-center justify-between gap-3">
           <button className="text-left" onClick={() => navigate("dashboard")}>
             <div className="text-sm font-semibold uppercase tracking-[0.24em] text-blue">Hugo Media</div>
@@ -1121,9 +1121,13 @@ export default function SalesOs() {
         </div>
       </aside>
 
-      <section className="min-w-0 px-4 py-5 sm:px-6 lg:px-8">
-        <header className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+      <section className="min-w-0 px-4 pb-28 pt-4 sm:px-6 lg:px-8 lg:pb-8 lg:pt-5">
+        <header className="mb-5 flex flex-col gap-4 sm:mb-6 xl:flex-row xl:items-center xl:justify-between">
           <div>
+            <button className="mb-3 text-left lg:hidden" onClick={() => navigate("dashboard")}>
+              <div className="text-xs font-semibold uppercase tracking-[0.24em] text-blue">Hugo Media</div>
+              <div className="text-xl font-black">Sales OS</div>
+            </button>
             <p className="text-sm text-slate-400">Сьогодні: {todayLabel}</p>
             <h1 className="mt-1 text-2xl font-black sm:text-3xl">{pageTitle}</h1>
             <p className="mt-2 text-xs text-slate-500">
@@ -1246,7 +1250,35 @@ export default function SalesOs() {
       )}
 
       {toast && <div className="fixed bottom-5 right-5 rounded-lg bg-white px-4 py-3 font-semibold text-ink shadow-glow">{toast}</div>}
+      <MobileNav active={active} onNavigate={navigate} />
     </main>
+  );
+}
+
+function MobileNav({ active, onNavigate }: { active: string; onNavigate: (id: string) => void }) {
+  const mobileItems = nav.filter((item) => ["dashboard", "leads", "pipeline", "followups", "tasks", "settings"].includes(item.id));
+  return (
+    <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-ink/95 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-2xl backdrop-blur lg:hidden">
+      <div className="grid grid-cols-6 gap-1">
+        {mobileItems.map((item) => {
+          const Icon = item.icon;
+          const activeItem = active === item.id;
+          return (
+            <button
+              key={item.id}
+              className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg px-1 text-[10px] font-semibold transition ${
+                activeItem ? "bg-white text-ink" : "text-slate-300"
+              }`}
+              onClick={() => onNavigate(item.id)}
+              title={item.label}
+            >
+              <Icon className="h-4 w-4" />
+              <span className="max-w-full truncate">{item.id === "followups" ? "Follow" : item.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
 
@@ -1418,7 +1450,7 @@ function LeadsPage(props: {
 }) {
   return (
     <Card>
-      <div className="mb-4 grid gap-3 lg:grid-cols-[1.3fr_repeat(4,1fr)]">
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-[1.3fr_repeat(4,1fr)]">
         <label className="relative">
           <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
           <input className="field pl-10" value={props.query} onChange={(event) => props.setQuery(event.target.value)} placeholder="Пошук: бізнес, місто, контакт, ніша" />
@@ -1428,26 +1460,64 @@ function LeadsPage(props: {
         <Select value={props.cityFilter} onChange={props.setCityFilter} options={["Усі", ...props.cities]} />
         <Select value={props.packageFilter} onChange={props.setPackageFilter} options={["Усі", ...props.packages.map((pkg) => pkg.name)]} />
       </div>
-      <DataTable
-        headers={["Бізнес", "Ніша", "Місто", "Контакт", "Статус", "Пакет", "Сума", "Follow-up", "Наступна дія", "Дії"]}
-        rows={props.leads.map((lead) => [
-          <button key="name" className="font-semibold text-blue" onClick={() => props.onOpen(lead.id)}>{lead.business_name}</button>,
-          lead.niche,
-          lead.city,
-          lead.contact_name,
-          <Select key="status" value={lead.status} onChange={(status) => props.onStatus(lead.id, status as LeadStatus)} options={statuses} />,
-          lead.package_interest,
-          moneyAmount(numericValue(lead.deal_value)),
-          <Input key="followup" label="" value={lead.follow_up_date} onChange={(value) => props.onPatch(lead.id, { follow_up_date: value })} />,
-          <span key="action" className="block min-w-56 whitespace-normal leading-6">{lead.next_action || "—"}</span>,
-          <div key="actions" className="flex flex-wrap gap-1">
-            <button className="rounded-md border border-line px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-white hover:text-ink" onClick={() => props.onOpen(lead.id)}>Відкрити</button>
-            <IconButton label="Редагувати" onClick={() => props.onEdit(lead)}><Edit3 className="h-4 w-4" /></IconButton>
-            <IconButton label="Дублювати" onClick={() => props.onDuplicate(lead)}><Copy className="h-4 w-4" /></IconButton>
-            <IconButton label="Видалити" onClick={() => window.confirm("Видалити лід?") && props.onDelete(lead.id)}><Trash2 className="h-4 w-4" /></IconButton>
-          </div>
-        ])}
-      />
+      <div className="space-y-3 lg:hidden">
+        {props.leads.length ? props.leads.map((lead) => (
+          <article key={lead.id} className="rounded-lg border border-line bg-panel2 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <button className="min-w-0 text-left" onClick={() => props.onOpen(lead.id)}>
+                <div className="truncate font-black text-blue">{lead.business_name}</div>
+                <div className="mt-1 text-xs text-slate-400">{lead.niche} · {lead.city || "місто не вказано"}</div>
+              </button>
+              <Badge status={lead.status} />
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-md border border-line bg-ink/50 p-2">
+                <div className="text-slate-500">Пакет</div>
+                <div className="mt-1 font-semibold">{lead.package_interest || "—"}</div>
+              </div>
+              <div className="rounded-md border border-line bg-ink/50 p-2">
+                <div className="text-slate-500">Сума</div>
+                <div className="mt-1 font-semibold">{moneyAmount(numericValue(lead.deal_value))}</div>
+              </div>
+            </div>
+            <div className="mt-3 grid gap-2">
+              <Select value={lead.status} onChange={(status) => props.onStatus(lead.id, status as LeadStatus)} options={statuses} />
+              <Input label="Follow-up" value={lead.follow_up_date} onChange={(value) => props.onPatch(lead.id, { follow_up_date: value })} />
+              <div className="rounded-md border border-line bg-ink/40 p-2 text-sm text-slate-300">{lead.next_action || "Наступна дія не вказана"}</div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button className="min-h-10 flex-1 rounded-lg bg-white px-3 text-sm font-semibold text-ink" onClick={() => props.onOpen(lead.id)}>Відкрити</button>
+              <IconButton label="Редагувати" onClick={() => props.onEdit(lead)}><Edit3 className="h-4 w-4" /></IconButton>
+              <IconButton label="Дублювати" onClick={() => props.onDuplicate(lead)}><Copy className="h-4 w-4" /></IconButton>
+              <IconButton label="Видалити" onClick={() => window.confirm("Видалити лід?") && props.onDelete(lead.id)}><Trash2 className="h-4 w-4" /></IconButton>
+            </div>
+          </article>
+        )) : (
+          <div className="rounded-lg border border-dashed border-line p-6 text-center text-sm text-slate-500">Немає лідів</div>
+        )}
+      </div>
+      <div className="hidden lg:block">
+        <DataTable
+          headers={["Бізнес", "Ніша", "Місто", "Контакт", "Статус", "Пакет", "Сума", "Follow-up", "Наступна дія", "Дії"]}
+          rows={props.leads.map((lead) => [
+            <button key="name" className="font-semibold text-blue" onClick={() => props.onOpen(lead.id)}>{lead.business_name}</button>,
+            lead.niche,
+            lead.city,
+            lead.contact_name,
+            <Select key="status" value={lead.status} onChange={(status) => props.onStatus(lead.id, status as LeadStatus)} options={statuses} />,
+            lead.package_interest,
+            moneyAmount(numericValue(lead.deal_value)),
+            <Input key="followup" label="" value={lead.follow_up_date} onChange={(value) => props.onPatch(lead.id, { follow_up_date: value })} />,
+            <span key="action" className="block min-w-56 whitespace-normal leading-6">{lead.next_action || "—"}</span>,
+            <div key="actions" className="flex flex-wrap gap-1">
+              <button className="rounded-md border border-line px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-white hover:text-ink" onClick={() => props.onOpen(lead.id)}>Відкрити</button>
+              <IconButton label="Редагувати" onClick={() => props.onEdit(lead)}><Edit3 className="h-4 w-4" /></IconButton>
+              <IconButton label="Дублювати" onClick={() => props.onDuplicate(lead)}><Copy className="h-4 w-4" /></IconButton>
+              <IconButton label="Видалити" onClick={() => window.confirm("Видалити лід?") && props.onDelete(lead.id)}><Trash2 className="h-4 w-4" /></IconButton>
+            </div>
+          ])}
+        />
+      </div>
     </Card>
   );
 }
@@ -1487,13 +1557,13 @@ function PipelinePage({
         </Card>
       </div>
 
-      <div className="overflow-x-auto pb-2">
-        <div className="grid min-w-[1440px] grid-cols-10 gap-3">
+      <div className="snap-x overflow-x-auto pb-2">
+        <div className="grid auto-cols-[82vw] grid-flow-col gap-3 lg:min-w-[1440px] lg:auto-cols-auto lg:grid-flow-row lg:grid-cols-10">
           {statuses.map((status) => {
             const columnLeads = leads.filter((lead) => lead.status === status);
             const columnValue = columnLeads.reduce((sum, lead) => sum + numericValue(lead.deal_value), 0);
             return (
-              <section key={status} className="rounded-lg border border-line bg-panel/80 p-3">
+              <section key={status} className="snap-start rounded-lg border border-line bg-panel/80 p-3">
                 <div className="mb-3 flex items-start justify-between gap-2">
                   <div>
                     <Badge status={status} />
@@ -1861,30 +1931,66 @@ function FollowupsPage({
           Прострочені: {items.filter((lead) => lead.follow_up_date < today).length} · Сьогодні: {items.filter((lead) => lead.follow_up_date === today).length}
         </div>
       </div>
-      <DataTable
-        headers={["Бізнес", "Статус", "Наступна дія", "Дата", "Пріоритет", "Перенести", ""]}
-        rows={items.map((lead) => [
-          <button key="name" className="font-semibold text-blue" onClick={() => onOpen(lead.id)}>{lead.business_name}</button>,
-          <Badge key="status" status={lead.status} />,
-          <Input key="action" label="" value={lead.next_action} onChange={(value) => updateLead(lead.id, { next_action: value })} />,
-          <Input key="date" label="" value={lead.follow_up_date} onChange={(value) => updateLead(lead.id, { follow_up_date: value })} />,
-          <span key="priority" className={`rounded-full border px-2 py-1 text-xs font-semibold ${lead.follow_up_date < today ? "border-red-400/40 text-red-200" : lead.follow_up_date === today ? "border-amber/40 text-amber-200" : "border-line text-slate-300"}`}>
-            {lead.follow_up_date < today ? "Прострочено" : lead.follow_up_date === today ? "Сьогодні" : "Заплановано"}
-          </span>,
-          <div key="postpone" className="flex flex-wrap gap-1">
-            {[1, 3, 7, 30].map((days) => (
-              <button key={days} className="rounded-md border border-line px-2 py-1 text-xs hover:bg-white hover:text-ink" onClick={() => updateLead(lead.id, { follow_up_date: addDays(lead.follow_up_date || today, days) })}>
-                +{days}
+      <div className="space-y-3 lg:hidden">
+        {items.length ? items.map((lead) => (
+          <article key={lead.id} className="rounded-lg border border-line bg-panel2 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <button className="min-w-0 text-left" onClick={() => onOpen(lead.id)}>
+                <div className="truncate font-black text-blue">{lead.business_name}</div>
+                <div className="mt-1 text-xs text-slate-400">{lead.niche} · {lead.city || "місто не вказано"}</div>
               </button>
-            ))}
-          </div>,
-          <div key="actions" className="flex gap-1">
-            <IconButton label="Створити follow-up task" onClick={() => setTasks((current) => [newTask(today, { title: `Follow-up: ${lead.business_name}`, type: "follow_up", related_lead_id: lead.id, due_date: lead.follow_up_date || today, priority: "High" }), ...current])}><Plus className="h-4 w-4" /></IconButton>
-            <IconButton label="Виконано" onClick={() => onDone(lead.id)}><Check className="h-4 w-4" /></IconButton>
-            <IconButton label="Видалити дату" onClick={() => updateLead(lead.id, { follow_up_date: "" })}><Trash2 className="h-4 w-4" /></IconButton>
-          </div>
-        ])}
-      />
+              <span className={`shrink-0 rounded-full border px-2 py-1 text-xs font-semibold ${lead.follow_up_date < today ? "border-red-400/40 text-red-200" : lead.follow_up_date === today ? "border-amber/40 text-amber-200" : "border-line text-slate-300"}`}>
+                {lead.follow_up_date < today ? "Прострочено" : lead.follow_up_date === today ? "Сьогодні" : "План"}
+              </span>
+            </div>
+            <div className="mt-3 grid gap-2">
+              <Textarea label="Наступна дія" value={lead.next_action} onChange={(value) => updateLead(lead.id, { next_action: value })} />
+              <Input label="Дата" value={lead.follow_up_date} onChange={(value) => updateLead(lead.id, { follow_up_date: value })} />
+              <div className="flex flex-wrap gap-1">
+                {[1, 3, 7, 30].map((days) => (
+                  <button key={days} className="min-h-9 rounded-md border border-line px-3 text-xs font-semibold" onClick={() => updateLead(lead.id, { follow_up_date: addDays(lead.follow_up_date || today, days) })}>
+                    +{days}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="mt-3 flex gap-2">
+              <button className="min-h-10 flex-1 rounded-lg bg-white px-3 text-sm font-semibold text-ink" onClick={() => onOpen(lead.id)}>Відкрити</button>
+              <IconButton label="Створити follow-up task" onClick={() => setTasks((current) => [newTask(today, { title: `Follow-up: ${lead.business_name}`, type: "follow_up", related_lead_id: lead.id, due_date: lead.follow_up_date || today, priority: "High" }), ...current])}><Plus className="h-4 w-4" /></IconButton>
+              <IconButton label="Виконано" onClick={() => onDone(lead.id)}><Check className="h-4 w-4" /></IconButton>
+              <IconButton label="Видалити дату" onClick={() => updateLead(lead.id, { follow_up_date: "" })}><Trash2 className="h-4 w-4" /></IconButton>
+            </div>
+          </article>
+        )) : (
+          <div className="rounded-lg border border-dashed border-line p-6 text-center text-sm text-slate-500">Немає follow-up</div>
+        )}
+      </div>
+      <div className="hidden lg:block">
+        <DataTable
+          headers={["Бізнес", "Статус", "Наступна дія", "Дата", "Пріоритет", "Перенести", ""]}
+          rows={items.map((lead) => [
+            <button key="name" className="font-semibold text-blue" onClick={() => onOpen(lead.id)}>{lead.business_name}</button>,
+            <Badge key="status" status={lead.status} />,
+            <Input key="action" label="" value={lead.next_action} onChange={(value) => updateLead(lead.id, { next_action: value })} />,
+            <Input key="date" label="" value={lead.follow_up_date} onChange={(value) => updateLead(lead.id, { follow_up_date: value })} />,
+            <span key="priority" className={`rounded-full border px-2 py-1 text-xs font-semibold ${lead.follow_up_date < today ? "border-red-400/40 text-red-200" : lead.follow_up_date === today ? "border-amber/40 text-amber-200" : "border-line text-slate-300"}`}>
+              {lead.follow_up_date < today ? "Прострочено" : lead.follow_up_date === today ? "Сьогодні" : "Заплановано"}
+            </span>,
+            <div key="postpone" className="flex flex-wrap gap-1">
+              {[1, 3, 7, 30].map((days) => (
+                <button key={days} className="rounded-md border border-line px-2 py-1 text-xs hover:bg-white hover:text-ink" onClick={() => updateLead(lead.id, { follow_up_date: addDays(lead.follow_up_date || today, days) })}>
+                  +{days}
+                </button>
+              ))}
+            </div>,
+            <div key="actions" className="flex gap-1">
+              <IconButton label="Створити follow-up task" onClick={() => setTasks((current) => [newTask(today, { title: `Follow-up: ${lead.business_name}`, type: "follow_up", related_lead_id: lead.id, due_date: lead.follow_up_date || today, priority: "High" }), ...current])}><Plus className="h-4 w-4" /></IconButton>
+              <IconButton label="Виконано" onClick={() => onDone(lead.id)}><Check className="h-4 w-4" /></IconButton>
+              <IconButton label="Видалити дату" onClick={() => updateLead(lead.id, { follow_up_date: "" })}><Trash2 className="h-4 w-4" /></IconButton>
+            </div>
+          ])}
+        />
+      </div>
     </Card>
   );
 }
@@ -2190,14 +2296,15 @@ function LeadForm({ lead, packages, today, onClose, onSave }: { lead: Lead | nul
   );
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [showMore, setShowMore] = useState(Boolean(lead));
 
   function setField<K extends keyof Lead>(key: K, value: Lead[K]) {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
   return (
-    <div className="fixed inset-0 z-40 overflow-y-auto bg-black/70 p-4">
-      <div className="mx-auto max-w-4xl rounded-lg border border-line bg-panel p-5 shadow-glow">
+    <div className="fixed inset-0 z-40 overflow-y-auto bg-black/70 p-0 sm:p-4">
+      <div className="mx-auto min-h-screen max-w-4xl border border-line bg-panel p-4 pb-24 shadow-glow sm:min-h-0 sm:rounded-lg sm:p-5">
         <div className="mb-5 flex items-center justify-between gap-3">
           <h2 className="text-2xl font-black">{lead ? "Редагувати лід" : "Додати лід"}</h2>
           <IconButton label="Закрити" onClick={onClose}><X className="h-4 w-4" /></IconButton>
@@ -2208,11 +2315,7 @@ function LeadForm({ lead, packages, today, onClose, onSave }: { lead: Lead | nul
           <Input label="Місто" value={form.city} onChange={(value) => setField("city", value)} />
           <Input label="Контактна особа" value={form.contact_name} onChange={(value) => setField("contact_name", value)} />
           <Input label="Instagram" value={form.instagram_url} onChange={(value) => setField("instagram_url", value)} />
-          <Input label="Facebook" value={form.facebook_url} onChange={(value) => setField("facebook_url", value)} />
-          <Input label="Сайт" value={form.website_url} onChange={(value) => setField("website_url", value)} />
           <Input label="Телефон" value={form.phone} onChange={(value) => setField("phone", value)} />
-          <Input label="Email" value={form.email} onChange={(value) => setField("email", value)} />
-          <Input label="Канал контакту" value={form.contact_channel} onChange={(value) => setField("contact_channel", value)} />
           <Select label="Статус" value={form.status} onChange={(value) => setField("status", value as LeadStatus)} options={statuses} />
           <Select label="Пакет" value={form.package_interest} onChange={(value) => {
             const selectedPackage = packages.find((pkg) => pkg.name === value);
@@ -2220,13 +2323,26 @@ function LeadForm({ lead, packages, today, onClose, onSave }: { lead: Lead | nul
           }} options={packages.map((pkg) => pkg.name)} />
           <Input label="Сума" value={String(form.deal_value)} onChange={(value) => setField("deal_value", Number(value) || 0)} />
           <Input label="Follow-up date" value={form.follow_up_date} onChange={(value) => setField("follow_up_date", value)} />
+          <Textarea label="Наступна дія" value={form.next_action} onChange={(value) => setField("next_action", value)} />
+        </div>
+        <button
+          className="mt-4 w-full rounded-lg border border-line px-4 py-3 text-sm font-semibold md:hidden"
+          onClick={() => setShowMore((current) => !current)}
+        >
+          {showMore ? "Сховати додатково" : "Додатково"}
+        </button>
+        <div className={`${showMore ? "grid" : "hidden"} mt-3 gap-3 md:grid md:grid-cols-2`}>
+          <Input label="Facebook" value={form.facebook_url} onChange={(value) => setField("facebook_url", value)} />
+          <Input label="Сайт" value={form.website_url} onChange={(value) => setField("website_url", value)} />
+          <Input label="Email" value={form.email} onChange={(value) => setField("email", value)} />
+          <Input label="Канал контакту" value={form.contact_channel} onChange={(value) => setField("contact_channel", value)} />
+          <Input label="Джерело" value={form.source} onChange={(value) => setField("source", value)} />
           <Textarea label="Слабке місце" value={form.weak_point} onChange={(value) => setField("weak_point", value)} />
           <Textarea label="Кут офферу" value={form.offer_angle} onChange={(value) => setField("offer_angle", value)} />
-          <Textarea label="Наступна дія" value={form.next_action} onChange={(value) => setField("next_action", value)} />
           <Textarea label="Нотатки" value={form.notes} onChange={(value) => setField("notes", value)} />
         </div>
         {error ? <p className="mt-3 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">{error}</p> : null}
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="fixed inset-x-0 bottom-0 z-10 flex justify-end gap-2 border-t border-line bg-panel p-3 sm:static sm:mt-5 sm:border-t-0 sm:bg-transparent sm:p-0">
           <button className="rounded-lg border border-line px-4 py-2 font-semibold disabled:opacity-50" disabled={isSaving} onClick={onClose}>Скасувати</button>
           <button className="rounded-lg bg-white px-4 py-2 font-semibold text-ink disabled:opacity-60" disabled={isSaving} onClick={async () => {
             if (!form.business_name.trim()) {
