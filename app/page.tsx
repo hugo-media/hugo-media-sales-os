@@ -5,6 +5,7 @@ import {
   CalendarDays,
   Check,
   ClipboardList,
+  Columns3,
   Copy,
   Edit3,
   Euro,
@@ -551,6 +552,7 @@ const statusStyles: Record<LeadStatus, string> = {
 const nav = [
   { id: "dashboard", label: "Дашборд", icon: LayoutDashboard },
   { id: "leads", label: "Ліди", icon: Users },
+  { id: "pipeline", label: "Pipeline", icon: Columns3 },
   { id: "tasks", label: "Завдання", icon: ListChecks },
   { id: "followups", label: "Follow-up", icon: MessageSquare },
   { id: "calendar", label: "Календар", icon: CalendarDays },
@@ -563,6 +565,7 @@ const nav = [
 const routeById: Record<string, string> = {
   dashboard: "/",
   leads: "/leads",
+  pipeline: "/pipeline",
   tasks: "/tasks",
   followups: "/follow-up",
   calendar: "/calendar",
@@ -931,6 +934,25 @@ export default function SalesOs() {
     revenue: leads.filter((lead) => lead.status === "Виграно").reduce((sum, lead) => sum + numericValue(lead.deal_value), 0)
   };
 
+  function patchLead(leadId: string, patch: Partial<Lead>) {
+    let leadToPersist: Lead | null = null;
+    setLeads((current) =>
+      current.map((lead) => {
+        if (lead.id !== leadId) {
+          return lead;
+        }
+        leadToPersist = { ...lead, ...patch, updated_at: today };
+        return leadToPersist;
+      })
+    );
+    if (leadToPersist && supabase && dataSource === "supabase") {
+      persistLead(supabase, leadToPersist).catch((error) => {
+        console.error("Lead patch failed", error);
+        setToast("Не вдалося одразу зберегти зміну в Supabase");
+      });
+    }
+  }
+
   function updateLeadStatus(leadId: string, status: LeadStatus) {
     const baseDate = today;
     const followUpByStatus: Partial<Record<LeadStatus, string>> = {
@@ -941,10 +963,13 @@ export default function SalesOs() {
       Програно: addDays(baseDate, settings.sales.return_delay_lost)
     };
 
+    let leadToPersist: Lead | null = null;
     setLeads((current) =>
-      current.map((lead) =>
-        lead.id === leadId
-          ? {
+      current.map((lead) => {
+        if (lead.id !== leadId) {
+          return lead;
+        }
+        leadToPersist = {
               ...lead,
               status,
               last_contact_date: baseDate,
@@ -958,10 +983,16 @@ export default function SalesOs() {
                       ? "Підготувати дзвінок"
                       : lead.next_action,
               updated_at: baseDate
-            }
-          : lead
-      )
+            };
+        return leadToPersist;
+      })
     );
+    if (leadToPersist && supabase && dataSource === "supabase") {
+      persistLead(supabase, leadToPersist).catch((error) => {
+        console.error("Lead status save failed", error);
+        setToast("Не вдалося одразу зберегти статус у Supabase");
+      });
+    }
 
     setHistory((current) => [
       {
@@ -1049,7 +1080,7 @@ export default function SalesOs() {
     );
   }
 
-  const pageTitle = selectedLead ? selectedLead.business_name : nav.find((item) => item.id === active)?.label ?? "Дашборд";
+  const pageTitle = nav.find((item) => item.id === active)?.label ?? "Дашборд";
 
   return (
     <main className="min-h-screen lg:grid lg:grid-cols-[280px_1fr]">
@@ -1064,7 +1095,7 @@ export default function SalesOs() {
         <nav className="grid grid-cols-2 gap-2 lg:grid-cols-1">
           {nav.map((item) => {
             const Icon = item.icon;
-            const activeItem = active === item.id && !selectedLead;
+            const activeItem = active === item.id;
             return (
               <button
                 key={item.id}
@@ -1118,33 +1149,7 @@ export default function SalesOs() {
           </div>
         </header>
 
-        {selectedLead ? (
-          <LeadDetail
-            lead={selectedLead}
-            history={history.filter((item) => item.lead_id === selectedLead.id)}
-            onBack={() => navigate("leads")}
-            onStatus={updateLeadStatus}
-            onEdit={() => { setEditingLead(selectedLead); setIsLeadFormOpen(true); }}
-            onDelete={() => window.confirm("Видалити лід?") && deleteLead(selectedLead.id)}
-            onTask={() =>
-              setTasks((current) => [
-                {
-                  id: newId(),
-                  title: `Задача для ${selectedLead.business_name}`,
-                  description: selectedLead.next_action,
-                  type: "admin",
-                  related_lead_id: selectedLead.id,
-                  due_date: today,
-                  status: "To do",
-                  priority: "Medium",
-                  created_at: today,
-                  updated_at: today
-                },
-                ...current
-              ])
-            }
-          />
-        ) : active === "dashboard" ? (
+        {active === "dashboard" ? (
           <Dashboard today={today} stats={stats} leads={leads} tasks={tasks} packages={activePackages} dailyTargets={settings.dailyTargets} onDailyTargetsChange={(dailyTargets) => setSettings((current) => ({ ...current, dailyTargets }))} onResetDailyTargets={() => setSettings((current) => ({ ...current, dailyTargets: current.dailyTargets.map((target) => ({ ...target, done: false })) }))} onOpenSettings={() => navigate("settings")} onDone={markTaskDone} onOpenLead={setSelectedLeadId} onStatus={updateLeadStatus} />
         ) : active === "leads" ? (
           <LeadsPage
@@ -1166,13 +1171,22 @@ export default function SalesOs() {
             onEdit={(lead) => { setEditingLead(lead); setIsLeadFormOpen(true); }}
             onDelete={deleteLead}
             onDuplicate={(lead) => saveLead({ ...lead, id: newId(), business_name: `${lead.business_name} копія`, created_at: today, updated_at: today })}
-            onPatch={(id, patch) => setLeads((current) => current.map((lead) => (lead.id === id ? { ...lead, ...patch, updated_at: today } : lead)))}
+            onPatch={patchLead}
+            onStatus={updateLeadStatus}
+          />
+        ) : active === "pipeline" ? (
+          <PipelinePage
+            leads={leads}
+            onOpen={setSelectedLeadId}
+            onEdit={(lead) => { setEditingLead(lead); setIsLeadFormOpen(true); }}
+            onDelete={deleteLead}
+            onPatch={patchLead}
             onStatus={updateLeadStatus}
           />
         ) : active === "tasks" ? (
           <TasksPage today={today} tomorrow={tomorrow} tasks={tasks} leads={leads} onDone={markTaskDone} setTasks={setTasks} />
         ) : active === "followups" ? (
-          <FollowupsPage today={today} leads={leads} setLeads={setLeads} setTasks={setTasks} onDone={(id) => updateLeadStatus(id, "Проаналізований")} onOpen={setSelectedLeadId} />
+          <FollowupsPage today={today} leads={leads} onPatch={patchLead} setTasks={setTasks} onDone={(id) => { updateLeadStatus(id, "Проаналізований"); patchLead(id, { follow_up_date: "", next_action: "" }); }} onOpen={setSelectedLeadId} />
         ) : active === "calendar" ? (
           <CalendarPage today={today} leads={leads} tasks={tasks} contentItems={contentItems} />
         ) : active === "content" ? (
@@ -1203,6 +1217,31 @@ export default function SalesOs() {
           today={today}
           onClose={() => { setIsLeadFormOpen(false); setEditingLead(null); }}
           onSave={saveLead}
+        />
+      )}
+
+      {selectedLead && (
+        <LeadSidePanel
+          lead={selectedLead}
+          history={history.filter((item) => item.lead_id === selectedLead.id)}
+          templates={templates}
+          today={today}
+          onClose={() => setSelectedLeadId(null)}
+          onEdit={() => { setEditingLead(selectedLead); setIsLeadFormOpen(true); }}
+          onDelete={() => window.confirm("Видалити лід?") && deleteLead(selectedLead.id)}
+          onPatch={(patch) => patchLead(selectedLead.id, patch)}
+          onStatus={(status) => updateLeadStatus(selectedLead.id, status)}
+          onTask={() =>
+            setTasks((current) => [
+              newTask(today, {
+                title: `Задача для ${selectedLead.business_name}`,
+                description: selectedLead.next_action,
+                related_lead_id: selectedLead.id
+              }),
+              ...current
+            ])
+          }
+          onCopied={() => setToast("Текст скопійовано")}
         />
       )}
 
@@ -1413,6 +1452,87 @@ function LeadsPage(props: {
   );
 }
 
+function PipelinePage({
+  leads,
+  onOpen,
+  onEdit,
+  onDelete,
+  onPatch,
+  onStatus
+}: {
+  leads: Lead[];
+  onOpen: (id: string) => void;
+  onEdit: (lead: Lead) => void;
+  onDelete: (id: string) => void;
+  onPatch: (id: string, patch: Partial<Lead>) => void;
+  onStatus: (id: string, status: LeadStatus) => void;
+}) {
+  const activePipeline = leads.filter((lead) => lead.status !== "Програно");
+  const total = activePipeline.reduce((sum, lead) => sum + numericValue(lead.deal_value), 0);
+
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Card>
+          <div className="text-sm text-slate-400">Активних лідів</div>
+          <div className="mt-2 text-2xl font-black">{activePipeline.length}</div>
+        </Card>
+        <Card>
+          <div className="text-sm text-slate-400">Потенціал</div>
+          <div className="mt-2 text-2xl font-black">{moneyAmount(total)}</div>
+        </Card>
+        <Card>
+          <div className="text-sm text-slate-400">Потрібен follow-up</div>
+          <div className="mt-2 text-2xl font-black">{leads.filter((lead) => lead.follow_up_date && lead.status !== "Виграно").length}</div>
+        </Card>
+      </div>
+
+      <div className="overflow-x-auto pb-2">
+        <div className="grid min-w-[1440px] grid-cols-10 gap-3">
+          {statuses.map((status) => {
+            const columnLeads = leads.filter((lead) => lead.status === status);
+            const columnValue = columnLeads.reduce((sum, lead) => sum + numericValue(lead.deal_value), 0);
+            return (
+              <section key={status} className="rounded-lg border border-line bg-panel/80 p-3">
+                <div className="mb-3 flex items-start justify-between gap-2">
+                  <div>
+                    <Badge status={status} />
+                    <div className="mt-2 text-xs text-slate-400">{columnLeads.length} лідів · {moneyAmount(columnValue)}</div>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  {columnLeads.length ? columnLeads.map((lead) => (
+                    <article key={lead.id} className="rounded-lg border border-line bg-panel2 p-3">
+                      <button className="text-left font-black text-blue" onClick={() => onOpen(lead.id)}>{lead.business_name}</button>
+                      <div className="mt-1 text-xs text-slate-400">{lead.niche} · {lead.city || "місто не вказано"}</div>
+                      <div className="mt-3 space-y-2 text-xs text-slate-300">
+                        <div className="flex justify-between gap-2"><span>Пакет</span><strong className="text-right text-slate-100">{lead.package_interest || "—"}</strong></div>
+                        <div className="flex justify-between gap-2"><span>Сума</span><strong className="text-slate-100">{moneyAmount(numericValue(lead.deal_value))}</strong></div>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        <Select value={lead.status} onChange={(value) => onStatus(lead.id, value as LeadStatus)} options={statuses} />
+                        <Input label="Follow-up" value={lead.follow_up_date} onChange={(value) => onPatch(lead.id, { follow_up_date: value })} />
+                        <Textarea label="Наступна дія" value={lead.next_action} onChange={(value) => onPatch(lead.id, { next_action: value })} />
+                      </div>
+                      <div className="mt-3 flex gap-1">
+                        <button className="rounded-md border border-line px-2 py-1 text-xs font-semibold hover:bg-white hover:text-ink" onClick={() => onOpen(lead.id)}>Відкрити</button>
+                        <IconButton label="Редагувати" onClick={() => onEdit(lead)}><Edit3 className="h-4 w-4" /></IconButton>
+                        <IconButton label="Видалити" onClick={() => window.confirm("Видалити лід?") && onDelete(lead.id)}><Trash2 className="h-4 w-4" /></IconButton>
+                      </div>
+                    </article>
+                  )) : (
+                    <div className="rounded-lg border border-dashed border-line p-4 text-center text-sm text-slate-500">Немає лідів</div>
+                  )}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LeadDetail({ lead, history, onBack, onStatus, onEdit, onDelete, onTask }: {
   lead: Lead;
   history: HistoryItem[];
@@ -1499,6 +1619,141 @@ function LeadDetail({ lead, history, onBack, onStatus, onEdit, onDelete, onTask 
   );
 }
 
+function LeadSidePanel({
+  lead,
+  history,
+  templates,
+  today,
+  onClose,
+  onEdit,
+  onDelete,
+  onPatch,
+  onStatus,
+  onTask,
+  onCopied
+}: {
+  lead: Lead;
+  history: HistoryItem[];
+  templates: Template[];
+  today: string;
+  onClose: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onPatch: (patch: Partial<Lead>) => void;
+  onStatus: (status: LeadStatus) => void;
+  onTask: () => void;
+  onCopied: () => void;
+}) {
+  const quickStatuses: LeadStatus[] = ["Написав", "Відповів", "КП відправлено", "Дзвінок заплановано", "Думає", "Виграно"];
+  const visibleTemplates = templates.slice(0, 5);
+  const contactRows = [
+    ["Контакт", lead.contact_name],
+    ["Канал", lead.contact_channel],
+    ["Телефон", lead.phone],
+    ["Email", lead.email],
+    ["Instagram", lead.instagram_url],
+    ["Сайт", lead.website_url],
+    ["Сума", moneyAmount(numericValue(lead.deal_value))]
+  ];
+
+  return (
+    <aside className="fixed inset-y-0 right-0 z-40 flex w-full max-w-[520px] flex-col border-l border-line bg-ink shadow-2xl">
+      <div className="flex items-start justify-between gap-3 border-b border-line p-4">
+        <div>
+          <div className="text-xs font-bold uppercase tracking-[0.18em] text-blue">Картка ліда</div>
+          <h2 className="mt-1 text-2xl font-black">{lead.business_name}</h2>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <Badge status={lead.status} />
+            <span className="rounded-full border border-line px-2.5 py-1 text-xs text-slate-300">{lead.niche || "ніша не вказана"}</span>
+            <span className="rounded-full border border-line px-2.5 py-1 text-xs text-slate-300">{lead.city || "місто не вказано"}</span>
+          </div>
+        </div>
+        <IconButton label="Закрити" onClick={onClose}><X className="h-4 w-4" /></IconButton>
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+        <Card>
+          <div className="grid gap-3">
+            <Select label="Статус" value={lead.status} onChange={(value) => onStatus(value as LeadStatus)} options={statuses} />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Input label="Follow-up дата" value={lead.follow_up_date} onChange={(value) => onPatch({ follow_up_date: value })} />
+              <Input label="Останній контакт" value={lead.last_contact_date} onChange={(value) => onPatch({ last_contact_date: value })} />
+            </div>
+            <Textarea label="Наступна дія" value={lead.next_action} onChange={(value) => onPatch({ next_action: value })} />
+            <div className="flex flex-wrap gap-2">
+              {quickStatuses.map((status) => (
+                <button key={status} className="rounded-lg border border-line px-3 py-2 text-xs font-semibold hover:bg-white hover:text-ink" onClick={() => onStatus(status)}>
+                  {status}
+                </button>
+              ))}
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <SectionTitle title="Контакти й угода" />
+          <div className="grid gap-2 sm:grid-cols-2">
+            {contactRows.map(([label, value]) => (
+              <div key={label} className="rounded-lg border border-line bg-panel2 p-3">
+                <div className="text-xs uppercase tracking-[0.12em] text-slate-500">{label}</div>
+                <div className="mt-1 break-words text-sm text-slate-100">{value || "—"}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 rounded-lg border border-line bg-panel2 p-3">
+            <div className="text-xs uppercase tracking-[0.12em] text-slate-500">Пакет / оффер</div>
+            <div className="mt-1 text-sm text-slate-100">{lead.package_interest || "—"}</div>
+            <div className="mt-2 text-sm text-slate-300">{lead.offer_angle || "—"}</div>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <SectionTitle title="Шаблони" />
+            <span className="text-xs text-slate-500">для швидкого копіювання</span>
+          </div>
+          <div className="space-y-2">
+            {visibleTemplates.length ? visibleTemplates.map((template) => (
+              <div key={template.id} className="flex items-center justify-between gap-3 rounded-lg border border-line bg-panel2 p-3">
+                <div>
+                  <div className="font-semibold">{template.title}</div>
+                  <div className="text-xs text-slate-400">{template.category}</div>
+                </div>
+                <IconButton label="Копіювати" onClick={() => { void navigator.clipboard?.writeText(template.body); onCopied(); }}><Copy className="h-4 w-4" /></IconButton>
+              </div>
+            )) : (
+              <div className="rounded-lg border border-dashed border-line p-4 text-center text-sm text-slate-500">Шаблонів ще немає</div>
+            )}
+          </div>
+        </Card>
+
+        <Card>
+          <SectionTitle title="Історія" />
+          <div className="space-y-2">
+            {history.length ? history.slice(0, 6).map((item) => (
+              <div key={item.id} className="rounded-lg border border-line bg-panel2 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <Badge status={item.status} />
+                  <span className="text-xs text-slate-500">{item.created_at}</span>
+                </div>
+                <p className="mt-2 text-sm text-slate-300">{item.note}</p>
+              </div>
+            )) : (
+              <div className="rounded-lg border border-dashed border-line p-4 text-center text-sm text-slate-500">Історія поки порожня</div>
+            )}
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid gap-2 border-t border-line p-4 sm:grid-cols-3">
+        <button className="rounded-lg bg-white px-4 py-3 font-semibold text-ink" onClick={onEdit}>Редагувати</button>
+        <button className="rounded-lg border border-line px-4 py-3 font-semibold" onClick={onTask}>Задача на {today}</button>
+        <button className="rounded-lg border border-red-400/40 px-4 py-3 font-semibold text-red-200" onClick={onDelete}>Видалити</button>
+      </div>
+    </aside>
+  );
+}
+
 function TasksPage({ today, tomorrow, tasks, leads, onDone, setTasks }: { today: string; tomorrow: string; tasks: Task[]; leads: Lead[]; onDone: (id: string) => void; setTasks: React.Dispatch<React.SetStateAction<Task[]>> }) {
   const [typeFilter, setTypeFilter] = useState("Усі");
   const [statusFilter, setStatusFilter] = useState("Усі");
@@ -1582,30 +1837,40 @@ function newTask(today: string, overrides: Partial<Task> = {}): Task {
 function FollowupsPage({
   today,
   leads,
-  setLeads,
+  onPatch,
   setTasks,
   onDone,
   onOpen
 }: {
   today: string;
   leads: Lead[];
-  setLeads: React.Dispatch<React.SetStateAction<Lead[]>>;
+  onPatch: (id: string, patch: Partial<Lead>) => void;
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
   onDone: (id: string) => void;
   onOpen: (id: string) => void;
 }) {
-  const items = leads.filter((lead) => lead.follow_up_date && lead.status !== "Виграно");
-  const updateLead = (id: string, patch: Partial<Lead>) => setLeads((current) => current.map((lead) => (lead.id === id ? { ...lead, ...patch, updated_at: today } : lead)));
+  const items = leads
+    .filter((lead) => lead.follow_up_date && lead.status !== "Виграно")
+    .sort((a, b) => a.follow_up_date.localeCompare(b.follow_up_date));
+  const updateLead = (id: string, patch: Partial<Lead>) => onPatch(id, patch);
   return (
     <Card>
-      <SectionTitle title="Усі follow-up" />
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+        <SectionTitle title="Follow-up inbox" />
+        <div className="text-sm text-slate-400">
+          Прострочені: {items.filter((lead) => lead.follow_up_date < today).length} · Сьогодні: {items.filter((lead) => lead.follow_up_date === today).length}
+        </div>
+      </div>
       <DataTable
-        headers={["Бізнес", "Статус", "Наступна дія", "Дата", "Перенести", ""]}
+        headers={["Бізнес", "Статус", "Наступна дія", "Дата", "Пріоритет", "Перенести", ""]}
         rows={items.map((lead) => [
           <button key="name" className="font-semibold text-blue" onClick={() => onOpen(lead.id)}>{lead.business_name}</button>,
           <Badge key="status" status={lead.status} />,
           <Input key="action" label="" value={lead.next_action} onChange={(value) => updateLead(lead.id, { next_action: value })} />,
           <Input key="date" label="" value={lead.follow_up_date} onChange={(value) => updateLead(lead.id, { follow_up_date: value })} />,
+          <span key="priority" className={`rounded-full border px-2 py-1 text-xs font-semibold ${lead.follow_up_date < today ? "border-red-400/40 text-red-200" : lead.follow_up_date === today ? "border-amber/40 text-amber-200" : "border-line text-slate-300"}`}>
+            {lead.follow_up_date < today ? "Прострочено" : lead.follow_up_date === today ? "Сьогодні" : "Заплановано"}
+          </span>,
           <div key="postpone" className="flex flex-wrap gap-1">
             {[1, 3, 7, 30].map((days) => (
               <button key={days} className="rounded-md border border-line px-2 py-1 text-xs hover:bg-white hover:text-ink" onClick={() => updateLead(lead.id, { follow_up_date: addDays(lead.follow_up_date || today, days) })}>
