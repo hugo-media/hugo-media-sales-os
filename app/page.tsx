@@ -168,6 +168,11 @@ type CrmSnapshot = {
   settings: AppSettings;
 };
 
+type LeadRow = Omit<Lead, "first_contact_date" | "last_contact_date" | "follow_up_date"> & {
+  first_contact_date: string | null;
+  last_contact_date: string | null;
+  follow_up_date: string | null;
+};
 type ContentRow = Omit<ContentItem, "CTA"> & { cta: string };
 type SettingRow = { key: string; value: AppSettings };
 
@@ -612,8 +617,36 @@ function rowToContent(item: ContentRow): ContentItem {
   return { ...rest, status, CTA: cta ?? "" } as ContentItem;
 }
 
+function emptyDateToNull(value: string) {
+  return value?.trim() ? value : null;
+}
+
+function nullDateToEmpty(value: string | null) {
+  return value ?? "";
+}
+
+function leadToRow(lead: Lead): LeadRow {
+  return {
+    ...lead,
+    deal_value: numericValue(lead.deal_value),
+    first_contact_date: emptyDateToNull(lead.first_contact_date),
+    last_contact_date: emptyDateToNull(lead.last_contact_date),
+    follow_up_date: emptyDateToNull(lead.follow_up_date)
+  };
+}
+
+function rowToLead(lead: LeadRow): Lead {
+  return {
+    ...lead,
+    deal_value: numericValue(lead.deal_value),
+    first_contact_date: nullDateToEmpty(lead.first_contact_date),
+    last_contact_date: nullDateToEmpty(lead.last_contact_date),
+    follow_up_date: nullDateToEmpty(lead.follow_up_date)
+  };
+}
+
 function cleanTask(task: Task) {
-  return { ...task, related_lead_id: task.related_lead_id || null };
+  return { ...task, related_lead_id: task.related_lead_id || null, due_date: emptyDateToNull(task.due_date) };
 }
 
 function mergeSettings(settings?: Partial<AppSettings> | null): AppSettings {
@@ -671,7 +704,7 @@ async function fetchSupabaseSnapshot(
 ): Promise<{ snapshot: CrmSnapshot | null; error?: string }> {
   try {
     const [leads, tasks, contentItems, templates, history, settingsRows] = await Promise.all([
-      supabaseRequest<Lead[]>(connection, "leads", "select=*&order=created_at.desc"),
+      supabaseRequest<LeadRow[]>(connection, "leads", "select=*&order=created_at.desc"),
       supabaseRequest<Task[]>(connection, "tasks", "select=*&order=due_date.asc"),
       supabaseRequest<ContentRow[]>(connection, "content_items", "select=*&order=date.asc"),
       supabaseRequest<Template[]>(connection, "templates", "select=*&order=created_at.desc"),
@@ -682,7 +715,7 @@ async function fetchSupabaseSnapshot(
     const remoteSettings = settingsRows[0]?.value;
     return {
       snapshot: {
-        leads,
+        leads: leads.map(rowToLead),
         tasks,
         contentItems: contentItems.map(rowToContent),
         templates,
@@ -711,12 +744,12 @@ async function upsertRows<T>(connection: SupabaseConnection, table: string, rows
 }
 
 async function persistLead(connection: SupabaseConnection, lead: Lead) {
-  await upsertRows(connection, "leads", [lead]);
+  await upsertRows(connection, "leads", [leadToRow(lead)]);
 }
 
 function syncSupabaseSnapshot(connection: SupabaseConnection, snapshot: CrmSnapshot) {
   void Promise.all([
-    upsertRows(connection, "leads", snapshot.leads),
+    upsertRows(connection, "leads", snapshot.leads.map(leadToRow)),
     upsertRows(connection, "tasks", snapshot.tasks.map(cleanTask)),
     upsertRows(connection, "content_items", snapshot.contentItems.map(contentToRow)),
     upsertRows(connection, "templates", snapshot.templates),
