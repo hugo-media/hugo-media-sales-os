@@ -621,11 +621,37 @@ function rowToContent(item: ContentRow): ContentItem {
 }
 
 function emptyDateToNull(value: string) {
-  return value?.trim() ? value : null;
+  const normalized = normalizeDateInput(value);
+  return normalized || null;
 }
 
 function nullDateToEmpty(value: string | null) {
   return value ?? "";
+}
+
+function normalizeDateInput(value?: string | null) {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return "";
+
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (isoMatch) {
+    return isValidDateParts(Number(isoMatch[1]), Number(isoMatch[2]), Number(isoMatch[3])) ? trimmed : "";
+  }
+
+  const localMatch = /^(\d{1,2})[./-](\d{1,2})[./-](\d{2}|\d{4})$/.exec(trimmed);
+  if (!localMatch) return "";
+
+  const day = Number(localMatch[1]);
+  const month = Number(localMatch[2]);
+  const rawYear = Number(localMatch[3]);
+  const year = rawYear < 100 ? 2000 + rawYear : rawYear;
+  if (!isValidDateParts(year, month, day)) return "";
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function isValidDateParts(year: number, month: number, day: number) {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
 function leadToRow(lead: Lead): LeadRow {
@@ -934,14 +960,38 @@ export default function SalesOs() {
     revenue: leads.filter((lead) => lead.status === "Виграно").reduce((sum, lead) => sum + numericValue(lead.deal_value), 0)
   };
 
+  function normalizeLeadDates(lead: Lead): Lead {
+    return {
+      ...lead,
+      first_contact_date: normalizeDateInput(lead.first_contact_date) || today,
+      last_contact_date: normalizeDateInput(lead.last_contact_date) || today,
+      follow_up_date: normalizeDateInput(lead.follow_up_date)
+    };
+  }
+
+  function normalizeLeadPatch(patch: Partial<Lead>) {
+    const nextPatch = { ...patch };
+    if ("first_contact_date" in nextPatch) {
+      nextPatch.first_contact_date = normalizeDateInput(nextPatch.first_contact_date) || today;
+    }
+    if ("last_contact_date" in nextPatch) {
+      nextPatch.last_contact_date = normalizeDateInput(nextPatch.last_contact_date) || today;
+    }
+    if ("follow_up_date" in nextPatch) {
+      nextPatch.follow_up_date = normalizeDateInput(nextPatch.follow_up_date);
+    }
+    return nextPatch;
+  }
+
   function patchLead(leadId: string, patch: Partial<Lead>) {
+    const normalizedPatch = normalizeLeadPatch(patch);
     let leadToPersist: Lead | null = null;
     setLeads((current) =>
       current.map((lead) => {
         if (lead.id !== leadId) {
           return lead;
         }
-        leadToPersist = { ...lead, ...patch, updated_at: today };
+        leadToPersist = normalizeLeadDates({ ...lead, ...normalizedPatch, updated_at: today });
         return leadToPersist;
       })
     );
@@ -1032,12 +1082,12 @@ export default function SalesOs() {
   }
 
   async function saveLead(lead: Lead) {
-    const leadToSave = {
+    const leadToSave = normalizeLeadDates({
       ...lead,
       business_name: lead.business_name.trim(),
       created_at: lead.created_at || today,
       updated_at: today
-    };
+    });
 
     if (supabase && dataSource === "supabase") {
       try {
@@ -1482,7 +1532,7 @@ function LeadsPage(props: {
             </div>
             <div className="mt-3 grid gap-2">
               <Select value={lead.status} onChange={(status) => props.onStatus(lead.id, status as LeadStatus)} options={statuses} />
-              <Input label="Follow-up" value={lead.follow_up_date} onChange={(value) => props.onPatch(lead.id, { follow_up_date: value })} />
+              <Input label="Follow-up" type="date" value={lead.follow_up_date} onChange={(value) => props.onPatch(lead.id, { follow_up_date: value })} />
               <div className="rounded-md border border-line bg-ink/40 p-2 text-sm text-slate-300">{lead.next_action || "Наступна дія не вказана"}</div>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
@@ -1507,7 +1557,7 @@ function LeadsPage(props: {
             <Select key="status" value={lead.status} onChange={(status) => props.onStatus(lead.id, status as LeadStatus)} options={statuses} />,
             lead.package_interest,
             moneyAmount(numericValue(lead.deal_value)),
-            <Input key="followup" label="" value={lead.follow_up_date} onChange={(value) => props.onPatch(lead.id, { follow_up_date: value })} />,
+            <Input key="followup" label="" type="date" value={lead.follow_up_date} onChange={(value) => props.onPatch(lead.id, { follow_up_date: value })} />,
             <span key="action" className="block min-w-56 whitespace-normal leading-6">{lead.next_action || "—"}</span>,
             <div key="actions" className="flex flex-wrap gap-1">
               <button className="rounded-md border border-line px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-white hover:text-ink" onClick={() => props.onOpen(lead.id)}>Відкрити</button>
@@ -1581,7 +1631,7 @@ function PipelinePage({
                       </div>
                       <div className="mt-3 space-y-2">
                         <Select value={lead.status} onChange={(value) => onStatus(lead.id, value as LeadStatus)} options={statuses} />
-                        <Input label="Follow-up" value={lead.follow_up_date} onChange={(value) => onPatch(lead.id, { follow_up_date: value })} />
+                        <Input label="Follow-up" type="date" value={lead.follow_up_date} onChange={(value) => onPatch(lead.id, { follow_up_date: value })} />
                         <Textarea label="Наступна дія" value={lead.next_action} onChange={(value) => onPatch(lead.id, { next_action: value })} />
                       </div>
                       <div className="mt-3 flex gap-1">
@@ -1746,8 +1796,8 @@ function LeadSidePanel({
           <div className="grid gap-3">
             <Select label="Статус" value={lead.status} onChange={(value) => onStatus(value as LeadStatus)} options={statuses} />
             <div className="grid gap-3 sm:grid-cols-2">
-              <Input label="Follow-up дата" value={lead.follow_up_date} onChange={(value) => onPatch({ follow_up_date: value })} />
-              <Input label="Останній контакт" value={lead.last_contact_date} onChange={(value) => onPatch({ last_contact_date: value })} />
+              <Input label="Follow-up дата" type="date" value={lead.follow_up_date} onChange={(value) => onPatch({ follow_up_date: value })} />
+              <Input label="Останній контакт" type="date" value={lead.last_contact_date} onChange={(value) => onPatch({ last_contact_date: value })} />
             </div>
             <Textarea label="Наступна дія" value={lead.next_action} onChange={(value) => onPatch({ next_action: value })} />
             <div className="flex flex-wrap gap-2">
@@ -1945,7 +1995,7 @@ function FollowupsPage({
             </div>
             <div className="mt-3 grid gap-2">
               <Textarea label="Наступна дія" value={lead.next_action} onChange={(value) => updateLead(lead.id, { next_action: value })} />
-              <Input label="Дата" value={lead.follow_up_date} onChange={(value) => updateLead(lead.id, { follow_up_date: value })} />
+              <Input label="Дата" type="date" value={lead.follow_up_date} onChange={(value) => updateLead(lead.id, { follow_up_date: value })} />
               <div className="flex flex-wrap gap-1">
                 {[1, 3, 7, 30].map((days) => (
                   <button key={days} className="min-h-9 rounded-md border border-line px-3 text-xs font-semibold" onClick={() => updateLead(lead.id, { follow_up_date: addDays(lead.follow_up_date || today, days) })}>
@@ -1972,7 +2022,7 @@ function FollowupsPage({
             <button key="name" className="font-semibold text-blue" onClick={() => onOpen(lead.id)}>{lead.business_name}</button>,
             <Badge key="status" status={lead.status} />,
             <Input key="action" label="" value={lead.next_action} onChange={(value) => updateLead(lead.id, { next_action: value })} />,
-            <Input key="date" label="" value={lead.follow_up_date} onChange={(value) => updateLead(lead.id, { follow_up_date: value })} />,
+            <Input key="date" label="" type="date" value={lead.follow_up_date} onChange={(value) => updateLead(lead.id, { follow_up_date: value })} />,
             <span key="priority" className={`rounded-full border px-2 py-1 text-xs font-semibold ${lead.follow_up_date < today ? "border-red-400/40 text-red-200" : lead.follow_up_date === today ? "border-amber/40 text-amber-200" : "border-line text-slate-300"}`}>
               {lead.follow_up_date < today ? "Прострочено" : lead.follow_up_date === today ? "Сьогодні" : "Заплановано"}
             </span>,
@@ -2322,7 +2372,7 @@ function LeadForm({ lead, packages, today, onClose, onSave }: { lead: Lead | nul
             setForm((current) => ({ ...current, package_interest: value, deal_value: selectedPackage?.value ?? current.deal_value }));
           }} options={packages.map((pkg) => pkg.name)} />
           <Input label="Сума" value={String(form.deal_value)} onChange={(value) => setField("deal_value", Number(value) || 0)} />
-          <Input label="Follow-up date" value={form.follow_up_date} onChange={(value) => setField("follow_up_date", value)} />
+          <Input label="Follow-up date" type="date" value={form.follow_up_date} onChange={(value) => setField("follow_up_date", value)} />
           <Textarea label="Наступна дія" value={form.next_action} onChange={(value) => setField("next_action", value)} />
         </div>
         <button
@@ -2353,8 +2403,8 @@ function LeadForm({ lead, packages, today, onClose, onSave }: { lead: Lead | nul
             setIsSaving(true);
             try {
               await onSave(form);
-            } catch {
-              setError("Не вдалося зберегти лід у Supabase. Перевір підключення і спробуй ще раз.");
+            } catch (saveError) {
+              setError(saveError instanceof Error ? `Не вдалося зберегти: ${saveError.message}` : "Не вдалося зберегти лід у Supabase. Перевір підключення і спробуй ще раз.");
             } finally {
               setIsSaving(false);
             }
@@ -2379,7 +2429,7 @@ function TaskEditor({ today, task, leads, onSave, onCancel }: { today: string; t
         <div className="grid gap-3 md:grid-cols-2">
           <Input label="Назва" value={draft.title} onChange={(value) => setField("title", value)} />
           <Select label="Тип" value={draft.type} onChange={(value) => setField("type", value as Task["type"])} options={["outreach", "follow_up", "call", "proposal", "content", "shoot", "admin"]} />
-          <Input label="Дата" value={draft.due_date} onChange={(value) => setField("due_date", value)} />
+          <Input label="Дата" type="date" value={draft.due_date} onChange={(value) => setField("due_date", value)} />
           <Select label="Статус" value={draft.status} onChange={(value) => setField("status", value as Task["status"])} options={["To do", "In progress", "Done", "Cancelled"]} />
           <Select label="Пріоритет" value={draft.priority} onChange={(value) => setField("priority", value as Task["priority"])} options={["Low", "Medium", "High"]} />
           <label className="block">
@@ -2412,7 +2462,7 @@ function ContentEditor({ item, onSave, onCancel }: { item: ContentItem; onSave: 
           <IconButton label="Закрити" onClick={onCancel}><X className="h-4 w-4" /></IconButton>
         </div>
         <div className="grid gap-3 md:grid-cols-2">
-          <Input label="Дата" value={draft.date} onChange={(value) => setField("date", value)} />
+          <Input label="Дата" type="date" value={draft.date} onChange={(value) => setField("date", value)} />
           <Input label="Тема" value={draft.topic} onChange={(value) => setField("topic", value)} />
           <Input label="Хук" value={draft.hook} onChange={(value) => setField("hook", value)} />
           <Input label="Ніша" value={draft.target_niche} onChange={(value) => setField("target_niche", value)} />
@@ -2499,11 +2549,11 @@ function Select({ value, onChange, options, label }: { value: string; onChange: 
   );
 }
 
-function Input({ label, value, onChange, defaultValue }: { label: string; value?: string; onChange?: (value: string) => void; defaultValue?: string }) {
+function Input({ label, value, onChange, defaultValue, type = "text" }: { label: string; value?: string; onChange?: (value: string) => void; defaultValue?: string; type?: string }) {
   return (
     <label className="block">
       <span className="mb-1 block text-xs text-slate-400">{label}</span>
-      <input className="field" value={value} defaultValue={defaultValue} onChange={(event) => onChange?.(event.target.value)} />
+      <input className="field" type={type} value={value} defaultValue={defaultValue} onChange={(event) => onChange?.(event.target.value)} />
     </label>
   );
 }
