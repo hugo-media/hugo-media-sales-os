@@ -626,6 +626,17 @@ function mergeSettings(settings?: Partial<AppSettings> | null): AppSettings {
   };
 }
 
+function recoverLocalLeads(remoteSnapshot: CrmSnapshot, localSnapshot: CrmSnapshot | null) {
+  if (!localSnapshot?.leads.length || remoteSnapshot.leads.length) {
+    return { snapshot: remoteSnapshot, shouldSync: false };
+  }
+
+  return {
+    snapshot: { ...remoteSnapshot, leads: localSnapshot.leads },
+    shouldSync: true
+  };
+}
+
 async function supabaseRequest<T>(
   connection: SupabaseConnection,
   table: string,
@@ -697,6 +708,10 @@ async function upsertRows<T>(connection: SupabaseConnection, table: string, rows
     },
     body: JSON.stringify(rows)
   });
+}
+
+async function persistLead(connection: SupabaseConnection, lead: Lead) {
+  await upsertRows(connection, "leads", [lead]);
 }
 
 function syncSupabaseSnapshot(connection: SupabaseConnection, snapshot: CrmSnapshot) {
@@ -809,10 +824,11 @@ export default function SalesOs() {
             remoteSnapshot.contentItems.length ||
             remoteSnapshot.templates.length ||
             remoteSnapshot.history.length;
-          const nextSnapshot = remoteHasData ? remoteSnapshot : seedSnapshot;
+          const recovered = remoteHasData ? recoverLocalLeads(remoteSnapshot, localSnapshot) : { snapshot: localSnapshot ?? seedSnapshot, shouldSync: true };
+          const nextSnapshot = recovered.snapshot;
           applySnapshot(nextSnapshot);
           writeLocalSnapshot(nextSnapshot);
-          if (!remoteHasData) {
+          if (!remoteHasData || recovered.shouldSync) {
             syncSupabaseSnapshot(supabase, nextSnapshot);
           }
           setDataSource("supabase");
@@ -951,12 +967,29 @@ export default function SalesOs() {
     }
   }
 
-  function saveLead(lead: Lead) {
+  async function saveLead(lead: Lead) {
+    const leadToSave = {
+      ...lead,
+      business_name: lead.business_name.trim(),
+      created_at: lead.created_at || today,
+      updated_at: today
+    };
+
+    if (supabase && dataSource === "supabase") {
+      try {
+        await persistLead(supabase, leadToSave);
+      } catch (error) {
+        console.error("Lead save failed", error);
+        setToast("Не вдалося зберегти лід у Supabase");
+        throw error;
+      }
+    }
+
     setLeads((current) => {
-      const exists = current.some((item) => item.id === lead.id);
+      const exists = current.some((item) => item.id === leadToSave.id);
       return exists
-        ? current.map((item) => (item.id === lead.id ? { ...lead, updated_at: today } : item))
-        : [{ ...lead, created_at: today, updated_at: today }, ...current];
+        ? current.map((item) => (item.id === leadToSave.id ? leadToSave : item))
+        : [leadToSave, ...current];
     });
     setIsLeadFormOpen(false);
     setEditingLead(null);
@@ -1828,7 +1861,7 @@ function SettingsPage({ settings, onChange }: { settings: AppSettings; onChange:
   );
 }
 
-function LeadForm({ lead, packages, today, onClose, onSave }: { lead: Lead | null; packages: PackageItem[]; today: string; onClose: () => void; onSave: (lead: Lead) => void }) {
+function LeadForm({ lead, packages, today, onClose, onSave }: { lead: Lead | null; packages: PackageItem[]; today: string; onClose: () => void; onSave: (lead: Lead) => Promise<void> | void }) {
   const [form, setForm] = useState<Lead>(
     lead ?? {
       id: newId(),
@@ -1858,6 +1891,7 @@ function LeadForm({ lead, packages, today, onClose, onSave }: { lead: Lead | nul
     }
   );
   const [error, setError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
   function setField<K extends keyof Lead>(key: K, value: Lead[K]) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -1895,15 +1929,22 @@ function LeadForm({ lead, packages, today, onClose, onSave }: { lead: Lead | nul
         </div>
         {error ? <p className="mt-3 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">{error}</p> : null}
         <div className="mt-5 flex justify-end gap-2">
-          <button className="rounded-lg border border-line px-4 py-2 font-semibold" onClick={onClose}>Скасувати</button>
-          <button className="rounded-lg bg-white px-4 py-2 font-semibold text-ink" onClick={() => {
+          <button className="rounded-lg border border-line px-4 py-2 font-semibold disabled:opacity-50" disabled={isSaving} onClick={onClose}>Скасувати</button>
+          <button className="rounded-lg bg-white px-4 py-2 font-semibold text-ink disabled:opacity-60" disabled={isSaving} onClick={async () => {
             if (!form.business_name.trim()) {
               setError("Назва бізнесу обов'язкова.");
               return;
             }
             setError("");
-            onSave(form);
-          }}>Зберегти</button>
+            setIsSaving(true);
+            try {
+              await onSave(form);
+            } catch {
+              setError("Не вдалося зберегти лід у Supabase. Перевір підключення і спробуй ще раз.");
+            } finally {
+              setIsSaving(false);
+            }
+          }}>{isSaving ? "Зберігаю..." : "Зберегти"}</button>
         </div>
       </div>
     </div>
