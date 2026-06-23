@@ -1204,7 +1204,7 @@ export default function SalesOs() {
         </header>
 
         {active === "dashboard" ? (
-          <Dashboard today={today} stats={stats} leads={leads} tasks={tasks} packages={activePackages} dailyTargets={settings.dailyTargets} onDailyTargetsChange={(dailyTargets) => setSettings((current) => ({ ...current, dailyTargets }))} onResetDailyTargets={() => setSettings((current) => ({ ...current, dailyTargets: current.dailyTargets.map((target) => ({ ...target, done: false })) }))} onOpenSettings={() => navigate("settings")} onDone={markTaskDone} onOpenLead={setSelectedLeadId} onStatus={updateLeadStatus} />
+          <Dashboard today={today} stats={stats} leads={leads} tasks={tasks} packages={activePackages} dailyTargets={settings.dailyTargets} onDailyTargetsChange={(dailyTargets) => setSettings((current) => ({ ...current, dailyTargets }))} onResetDailyTargets={() => setSettings((current) => ({ ...current, dailyTargets: current.dailyTargets.map((target) => ({ ...target, done: false })) }))} onOpenSettings={() => navigate("settings")} onOpenFollowups={() => navigate("followups")} onOpenPipeline={() => navigate("pipeline")} onAddLead={() => { setEditingLead(null); setIsLeadFormOpen(true); }} onDone={markTaskDone} onOpenLead={setSelectedLeadId} onStatus={updateLeadStatus} />
         ) : active === "leads" ? (
           <LeadsPage
             leads={filteredLeads}
@@ -1340,7 +1340,7 @@ function Badge({ status }: { status: LeadStatus }) {
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusStyles[status]}`}>{status}</span>;
 }
 
-function Dashboard({ today, stats, leads, tasks, packages, dailyTargets, onDailyTargetsChange, onResetDailyTargets, onOpenSettings, onDone, onOpenLead, onStatus }: {
+function Dashboard({ today, stats, leads, tasks, packages, dailyTargets, onDailyTargetsChange, onResetDailyTargets, onOpenSettings, onOpenFollowups, onOpenPipeline, onAddLead, onDone, onOpenLead, onStatus }: {
   today: string;
   stats: Record<string, number>;
   leads: Lead[];
@@ -1350,12 +1350,21 @@ function Dashboard({ today, stats, leads, tasks, packages, dailyTargets, onDaily
   onDailyTargetsChange: (targets: DailyTarget[]) => void;
   onResetDailyTargets: () => void;
   onOpenSettings: () => void;
+  onOpenFollowups: () => void;
+  onOpenPipeline: () => void;
+  onAddLead: () => void;
   onDone: (id: string) => void;
   onOpenLead: (id: string) => void;
   onStatus: (id: string, status: LeadStatus) => void;
 }) {
   const todayTasks = tasks.filter((task) => task.due_date <= today && task.status !== "Done");
-  const followUps = leads.filter((lead) => lead.follow_up_date && lead.follow_up_date <= today && lead.status !== "Виграно");
+  const dueFollowUps = leads
+    .filter((lead) => lead.follow_up_date && lead.follow_up_date <= today && lead.status !== "Виграно")
+    .sort((a, b) => a.follow_up_date.localeCompare(b.follow_up_date));
+  const overdueFollowUps = dueFollowUps.filter((lead) => lead.follow_up_date < today);
+  const todayFollowUps = dueFollowUps.filter((lead) => lead.follow_up_date === today);
+  const freshLeads = leads.filter((lead) => ["Новий", "Проаналізований"].includes(lead.status)).slice(0, 4);
+  const workQueue = [...dueFollowUps, ...freshLeads.filter((lead) => !dueFollowUps.some((item) => item.id === lead.id))].slice(0, 7);
   const statCards = [
     ["Всього лідів", stats.total],
     ["Написано", stats.contacted],
@@ -1369,91 +1378,137 @@ function Dashboard({ today, stats, leads, tasks, packages, dailyTargets, onDaily
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {statCards.map(([label, value]) => (
-          <Card key={label}>
-            <div className="text-sm text-slate-400">{label}</div>
-            <div className="mt-2 text-2xl font-black">{value}</div>
-          </Card>
-        ))}
+      <div className="grid gap-3 md:grid-cols-4">
+        <button className="rounded-lg border border-red-400/30 bg-red-500/10 p-4 text-left" onClick={onOpenFollowups}>
+          <div className="text-sm text-red-200">Прострочені</div>
+          <div className="mt-2 text-3xl font-black">{overdueFollowUps.length}</div>
+          <div className="mt-1 text-xs text-slate-400">закрити першими</div>
+        </button>
+        <button className="rounded-lg border border-amber/30 bg-amber/10 p-4 text-left" onClick={onOpenFollowups}>
+          <div className="text-sm text-amber-100">Follow-up сьогодні</div>
+          <div className="mt-2 text-3xl font-black">{todayFollowUps.length}</div>
+          <div className="mt-1 text-xs text-slate-400">люди, яким треба написати</div>
+        </button>
+        <button className="rounded-lg border border-blue/30 bg-blue/10 p-4 text-left" onClick={onAddLead}>
+          <div className="text-sm text-sky-100">Швидко додати</div>
+          <div className="mt-2 text-xl font-black">Новий лід</div>
+          <div className="mt-1 text-xs text-slate-400">без переходів і таблиць</div>
+        </button>
+        <button className="rounded-lg border border-mint/30 bg-mint/10 p-4 text-left" onClick={onOpenPipeline}>
+          <div className="text-sm text-emerald-100">Потенціал</div>
+          <div className="mt-2 text-2xl font-black">{moneyAmount(stats.pipeline)}</div>
+          <div className="mt-1 text-xs text-slate-400">відкрити pipeline</div>
+        </button>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+      <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
         <Card>
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-            <SectionTitle title="Daily plan" />
-            <div className="flex gap-2">
-              <button className="rounded-lg border border-line px-3 py-2 text-sm font-semibold" onClick={onOpenSettings}>Редагувати</button>
-              <button className="rounded-lg border border-line px-3 py-2 text-sm font-semibold" onClick={onResetDailyTargets}>Reset</button>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <SectionTitle title="Робота зараз" />
+              <p className="-mt-2 text-sm text-slate-400">Спочатку прострочені, потім сьогодні, потім нові ліди.</p>
             </div>
+            <button className="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-ink" onClick={onAddLead}>+ Лід</button>
           </div>
-          <div className="mb-4 space-y-2">
-            {dailyTargets.map((target) => (
-              <label key={target.id} className="flex items-center justify-between gap-3 rounded-lg border border-line bg-panel2 p-3">
-                <span className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 accent-blue"
-                    checked={target.done}
-                    onChange={(event) => onDailyTargetsChange(dailyTargets.map((item) => (item.id === target.id ? { ...item, done: event.target.checked } : item)))}
-                  />
-                  <span>{target.title}</span>
-                </span>
-                <span className="rounded-md bg-ink px-2 py-1 text-xs text-blue">{target.done ? target.target : 0}/{target.target}</span>
-              </label>
-            ))}
-          </div>
-          <SectionTitle title="Завдання на сьогодні" />
-          <div className="space-y-2">
-            {todayTasks.map((task) => (
-              <div key={task.id} className="flex items-center justify-between gap-3 rounded-lg border border-line bg-panel2 p-3">
-                <div>
-                  <div className="font-semibold">{task.title}</div>
-                  <div className="text-xs text-slate-400">{task.priority} · {task.type}</div>
-                </div>
-                <IconButton label="Виконано" onClick={() => onDone(task.id)}>
-                  <Check className="h-4 w-4" />
-                </IconButton>
+          <div className="space-y-3">
+            {workQueue.length ? workQueue.map((lead) => {
+              const isOverdue = lead.follow_up_date && lead.follow_up_date < today;
+              const isDueToday = lead.follow_up_date === today;
+              return (
+                <article key={lead.id} className="rounded-lg border border-line bg-panel2 p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <button className="min-w-0 text-left" onClick={() => onOpenLead(lead.id)}>
+                      <div className="font-black text-blue">{lead.business_name}</div>
+                      <div className="mt-1 text-xs text-slate-400">{lead.niche} · {lead.city || "місто не вказано"}</div>
+                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      {isOverdue ? <span className="rounded-full border border-red-400/40 px-2 py-1 text-xs text-red-200">прострочено</span> : null}
+                      {isDueToday ? <span className="rounded-full border border-amber/40 px-2 py-1 text-xs text-amber-100">сьогодні</span> : null}
+                      <Badge status={lead.status} />
+                    </div>
+                  </div>
+                  <p className="mt-3 rounded-md border border-line bg-ink/40 p-2 text-sm text-slate-300">{lead.next_action || "Наступна дія не вказана"}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button className="min-h-10 rounded-lg bg-white px-3 text-sm font-semibold text-ink" onClick={() => onOpenLead(lead.id)}>Відкрити</button>
+                    <button className="min-h-10 rounded-lg border border-line px-3 text-sm font-semibold" onClick={() => onStatus(lead.id, "Написав")}>Написав</button>
+                    <button className="min-h-10 rounded-lg border border-line px-3 text-sm font-semibold" onClick={() => onStatus(lead.id, "Відповів")}>Відповів</button>
+                    <button className="min-h-10 rounded-lg border border-line px-3 text-sm font-semibold" onClick={() => onStatus(lead.id, "КП відправлено")}>КП</button>
+                  </div>
+                </article>
+              );
+            }) : (
+              <div className="rounded-lg border border-dashed border-line p-6 text-center text-sm text-slate-500">
+                На зараз нічого не горить. Можна додати нових лідів або відкрити pipeline.
               </div>
-            ))}
+            )}
           </div>
         </Card>
 
-        <Card>
-          <SectionTitle title="Follow-up сьогодні" />
-          <DataTable
-            headers={["Бізнес", "Ніша", "Місто", "Статус", "Наступна дія", "Дата", ""]}
-            rows={followUps.map((lead) => [
-              <button key="name" className="font-semibold text-blue" onClick={() => onOpenLead(lead.id)}>{lead.business_name}</button>,
-              lead.niche,
-              lead.city,
-              <Badge key="status" status={lead.status} />,
-              lead.next_action,
-              lead.follow_up_date,
-              <IconButton key="done" label="Виконано" onClick={() => onStatus(lead.id, "Проаналізований")}><Check className="h-4 w-4" /></IconButton>
-            ])}
-          />
-        </Card>
+        <div className="space-y-5">
+          <Card>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+              <SectionTitle title="План дня" />
+              <div className="flex gap-2">
+                <button className="rounded-lg border border-line px-3 py-2 text-sm font-semibold" onClick={onOpenSettings}>Редагувати</button>
+                <button className="rounded-lg border border-line px-3 py-2 text-sm font-semibold" onClick={onResetDailyTargets}>Reset</button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {dailyTargets.map((target) => (
+                <label key={target.id} className="flex items-center justify-between gap-3 rounded-lg border border-line bg-panel2 p-3">
+                  <span className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 accent-blue"
+                      checked={target.done}
+                      onChange={(event) => onDailyTargetsChange(dailyTargets.map((item) => (item.id === target.id ? { ...item, done: event.target.checked } : item)))}
+                    />
+                    <span>{target.title}</span>
+                  </span>
+                  <span className="rounded-md bg-ink px-2 py-1 text-xs text-blue">{target.done ? target.target : 0}/{target.target}</span>
+                </label>
+              ))}
+            </div>
+          </Card>
+
+          <Card>
+            <SectionTitle title="Завдання" />
+            <div className="space-y-2">
+              {todayTasks.length ? todayTasks.slice(0, 5).map((task) => (
+                <div key={task.id} className="flex items-center justify-between gap-3 rounded-lg border border-line bg-panel2 p-3">
+                  <div>
+                    <div className="font-semibold">{task.title}</div>
+                    <div className="text-xs text-slate-400">{task.priority} · {task.type}</div>
+                  </div>
+                  <IconButton label="Виконано" onClick={() => onDone(task.id)}>
+                    <Check className="h-4 w-4" />
+                  </IconButton>
+                </div>
+              )) : (
+                <div className="rounded-lg border border-dashed border-line p-4 text-center text-sm text-slate-500">Задач на сьогодні немає</div>
+              )}
+            </div>
+          </Card>
+        </div>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
+      <div className="grid gap-5 xl:grid-cols-[1fr_0.8fr]">
         <Card>
           <SectionTitle title="Останні ліди" />
-          <DataTable
-            headers={["Бізнес", "Ніша", "Місто", "Статус", "Пакет", "Сума", "Наступна дія"]}
-            rows={leads.slice(0, 6).map((lead) => [
-              <button key="name" className="font-semibold text-blue" onClick={() => onOpenLead(lead.id)}>{lead.business_name}</button>,
-              lead.niche,
-              lead.city,
-              <Badge key="status" status={lead.status} />,
-              lead.package_interest,
-              moneyAmount(numericValue(lead.deal_value)),
-              lead.next_action
-            ])}
-          />
+          <div className="grid gap-3 md:grid-cols-2">
+            {leads.slice(0, 6).map((lead) => (
+              <button key={lead.id} className="rounded-lg border border-line bg-panel2 p-3 text-left hover:bg-white hover:text-ink" onClick={() => onOpenLead(lead.id)}>
+                <div>
+                  <div className="font-black">{lead.business_name}</div>
+                  <div className="mt-1 text-xs opacity-70">{lead.niche} · {lead.city || "місто не вказано"}</div>
+                  <div className="mt-2 text-sm">{moneyAmount(numericValue(lead.deal_value))}</div>
+                </div>
+              </button>
+            ))}
+          </div>
         </Card>
         <Card>
-          <SectionTitle title="Pipeline по пакетах" />
+          <SectionTitle title="Пакети" />
           <div className="space-y-3">
             {packages.map((pkg) => {
               const count = leads.filter((lead) => lead.package_interest === pkg.name && lead.status !== "Програно").length;
@@ -1472,6 +1527,18 @@ function Dashboard({ today, stats, leads, tasks, packages, dailyTargets, onDaily
           </div>
         </Card>
       </div>
+
+      <Card className="hidden lg:block">
+        <SectionTitle title="Статистика" />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {statCards.map(([label, value]) => (
+            <div key={label} className="rounded-lg border border-line bg-panel2 p-3">
+              <div className="text-sm text-slate-400">{label}</div>
+              <div className="mt-2 text-2xl font-black">{value}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
     </div>
   );
 }
