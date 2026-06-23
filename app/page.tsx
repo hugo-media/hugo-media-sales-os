@@ -1641,11 +1641,7 @@ function LeadsPage(props: {
 
 function PipelinePage({
   leads,
-  onOpen,
-  onEdit,
-  onDelete,
-  onPatch,
-  onStatus
+  onOpen
 }: {
   leads: Lead[];
   onOpen: (id: string) => void;
@@ -1674,39 +1670,39 @@ function PipelinePage({
         </Card>
       </div>
 
-      <div className="snap-x overflow-x-auto pb-2">
-        <div className="grid auto-cols-[82vw] grid-flow-col gap-3 lg:min-w-[1440px] lg:auto-cols-auto lg:grid-flow-row lg:grid-cols-10">
+      <div className="snap-x overflow-x-auto pb-3">
+        <div className="grid auto-cols-[82vw] grid-flow-col gap-3 lg:auto-cols-[280px]">
           {statuses.map((status) => {
             const columnLeads = leads.filter((lead) => lead.status === status);
             const columnValue = columnLeads.reduce((sum, lead) => sum + numericValue(lead.deal_value), 0);
             return (
-              <section key={status} className="snap-start rounded-lg border border-line bg-panel/80 p-3">
+              <section key={status} className="flex max-h-[72vh] min-h-[520px] snap-start flex-col rounded-lg border border-line bg-panel/80 p-3">
                 <div className="mb-3 flex items-start justify-between gap-2">
                   <div>
                     <Badge status={status} />
                     <div className="mt-2 text-xs text-slate-400">{columnLeads.length} лідів · {moneyAmount(columnValue)}</div>
                   </div>
                 </div>
-                <div className="space-y-3">
+                <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
                   {columnLeads.length ? columnLeads.map((lead) => (
-                    <article key={lead.id} className="rounded-lg border border-line bg-panel2 p-3">
-                      <button className="text-left font-black text-blue" onClick={() => onOpen(lead.id)}>{lead.business_name}</button>
+                    <button
+                      key={lead.id}
+                      className="block w-full rounded-lg border border-line bg-panel2 p-3 text-left transition hover:border-blue/60 hover:bg-white hover:text-ink"
+                      onClick={() => onOpen(lead.id)}
+                    >
+                      <div className="line-clamp-2 text-base font-black text-blue">{lead.business_name}</div>
                       <div className="mt-1 text-xs text-slate-400">{lead.niche} · {lead.city || "місто не вказано"}</div>
-                      <div className="mt-3 space-y-2 text-xs text-slate-300">
-                        <div className="flex justify-between gap-2"><span>Пакет</span><strong className="text-right text-slate-100">{lead.package_interest || "—"}</strong></div>
-                        <div className="flex justify-between gap-2"><span>Сума</span><strong className="text-slate-100">{moneyAmount(numericValue(lead.deal_value))}</strong></div>
+                      <div className="mt-3 flex items-center justify-between gap-3 text-xs">
+                        <span className="truncate text-slate-400">{lead.package_interest || "пакет не вказано"}</span>
+                        <strong className="shrink-0 text-sm text-slate-100">{moneyAmount(numericValue(lead.deal_value))}</strong>
                       </div>
-                      <div className="mt-3 space-y-2">
-                        <Select value={lead.status} onChange={(value) => onStatus(lead.id, value as LeadStatus)} options={statuses} />
-                        <Input label="Follow-up" type="date" value={lead.follow_up_date} onChange={(value) => onPatch(lead.id, { follow_up_date: value })} />
-                        <Textarea label="Наступна дія" value={lead.next_action} onChange={(value) => onPatch(lead.id, { next_action: value })} />
-                      </div>
-                      <div className="mt-3 flex gap-1">
-                        <button className="rounded-md border border-line px-2 py-1 text-xs font-semibold hover:bg-white hover:text-ink" onClick={() => onOpen(lead.id)}>Відкрити</button>
-                        <IconButton label="Редагувати" onClick={() => onEdit(lead)}><Edit3 className="h-4 w-4" /></IconButton>
-                        <IconButton label="Видалити" onClick={() => window.confirm("Видалити лід?") && onDelete(lead.id)}><Trash2 className="h-4 w-4" /></IconButton>
-                      </div>
-                    </article>
+                      {lead.follow_up_date || lead.next_action ? (
+                        <div className="mt-3 rounded-md border border-line bg-ink/35 p-2 text-xs text-slate-300">
+                          {lead.follow_up_date ? <div className="font-semibold text-amber-100">Follow-up: {lead.follow_up_date}</div> : null}
+                          {lead.next_action ? <div className="mt-1 line-clamp-2">{lead.next_action}</div> : null}
+                        </div>
+                      ) : null}
+                    </button>
                   )) : (
                     <div className="rounded-lg border border-dashed border-line p-4 text-center text-sm text-slate-500">Немає лідів</div>
                   )}
