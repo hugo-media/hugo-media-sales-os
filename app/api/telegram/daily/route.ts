@@ -117,7 +117,11 @@ async function sendTelegram(text: string) {
       chat_id: chatId,
       text,
       disable_web_page_preview: true,
-      parse_mode: "HTML"
+      parse_mode: "HTML",
+      reply_markup: {
+        keyboard: [[{ text: "📊 Статус зараз" }], [{ text: "Відкрити CRM" }]],
+        resize_keyboard: true
+      }
     })
   });
 
