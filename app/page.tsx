@@ -612,6 +612,7 @@ const statusStyles: Record<LeadStatus, string> = {
 };
 
 const nav = [
+  { id: "today", label: "Сьогодні", icon: Flame },
   { id: "dashboard", label: "Дашборд", icon: LayoutDashboard },
   { id: "leads", label: "Ліди", icon: Users },
   { id: "pipeline", label: "Pipeline", icon: Columns3 },
@@ -625,7 +626,8 @@ const nav = [
 ];
 
 const routeById: Record<string, string> = {
-  dashboard: "/",
+  today: "/",
+  dashboard: "/dashboard",
   leads: "/leads",
   pipeline: "/pipeline",
   tasks: "/tasks",
@@ -869,7 +871,7 @@ function deleteSupabaseRows(connection: SupabaseConnection, table: string, filte
 }
 
 export default function SalesOs() {
-  const [active, setActive] = useState("dashboard");
+  const [active, setActive] = useState("today");
   const [leads, setLeads] = useState(seedSnapshot.leads);
   const [tasks, setTasks] = useState(seedSnapshot.tasks);
   const [contentItems, setContentItems] = useState(seedSnapshot.contentItems);
@@ -901,7 +903,7 @@ export default function SalesOs() {
 
   useEffect(() => {
     const applyRoute = () => {
-      const nextActive = idByRoute[window.location.pathname] ?? "dashboard";
+      const nextActive = idByRoute[window.location.pathname] ?? "today";
       setActive(nextActive);
       setSelectedLeadId(null);
     };
@@ -1198,7 +1200,7 @@ export default function SalesOs() {
     <main className="min-h-screen lg:grid lg:grid-cols-[280px_1fr]">
       <aside className="hidden border-b border-line bg-ink/92 px-4 py-4 lg:sticky lg:top-0 lg:block lg:h-screen lg:border-b-0 lg:border-r lg:px-5">
         <div className="mb-6 flex items-center justify-between gap-3">
-          <button className="text-left" onClick={() => navigate("dashboard")}>
+          <button className="text-left" onClick={() => navigate("today")}>
             <div className="text-sm font-semibold uppercase tracking-[0.24em] text-blue">Hugo Media</div>
             <div className="text-2xl font-black">Sales OS</div>
           </button>
@@ -1236,7 +1238,7 @@ export default function SalesOs() {
       <section className="min-w-0 px-4 pb-28 pt-4 sm:px-6 lg:px-8 lg:pb-8 lg:pt-5">
         <header className="mb-5 flex flex-col gap-4 sm:mb-6 xl:flex-row xl:items-center xl:justify-between">
           <div>
-            <button className="mb-3 text-left lg:hidden" onClick={() => navigate("dashboard")}>
+            <button className="mb-3 text-left lg:hidden" onClick={() => navigate("today")}>
               <div className="text-xs font-semibold uppercase tracking-[0.24em] text-blue">Hugo Media</div>
               <div className="text-xl font-black">Sales OS</div>
             </button>
@@ -1265,7 +1267,22 @@ export default function SalesOs() {
           </div>
         </header>
 
-        {active === "dashboard" ? (
+        {active === "today" ? (
+          <TodayPage
+            today={today}
+            leads={leads}
+            tasks={tasks}
+            stats={stats}
+            onAddLead={() => { setEditingLead(null); setIsLeadFormOpen(true); }}
+            onOpenLead={setSelectedLeadId}
+            onStatus={updateLeadStatus}
+            onPatch={patchLead}
+            onDone={markTaskDone}
+            onOpenPipeline={() => navigate("pipeline")}
+            onOpenFollowups={() => navigate("followups")}
+            onCopied={() => setToast("Текст скопійовано")}
+          />
+        ) : active === "dashboard" ? (
           <Dashboard today={today} stats={stats} leads={leads} tasks={tasks} packages={activePackages} dailyTargets={settings.dailyTargets} onDailyTargetsChange={(dailyTargets) => setSettings((current) => ({ ...current, dailyTargets }))} onResetDailyTargets={() => setSettings((current) => ({ ...current, dailyTargets: current.dailyTargets.map((target) => ({ ...target, done: false })) }))} onOpenSettings={() => navigate("settings")} onOpenFollowups={() => navigate("followups")} onOpenPipeline={() => navigate("pipeline")} onAddLead={() => { setEditingLead(null); setIsLeadFormOpen(true); }} onDone={markTaskDone} onOpenLead={setSelectedLeadId} onStatus={updateLeadStatus} />
         ) : active === "leads" ? (
           <LeadsPage
@@ -1371,14 +1388,14 @@ export default function SalesOs() {
 
 function MobileNav({ active, onNavigate }: { active: string; onNavigate: (id: string) => void }) {
   const mobileItems = nav
-    .filter((item) => ["dashboard", "leads", "pipeline", "followups", "settings"].includes(item.id))
+    .filter((item) => ["today", "leads", "pipeline", "followups", "settings"].includes(item.id))
     .map((item) => (item.id === "settings" ? { ...item, label: "Ще", icon: MoreHorizontal } : item));
   return (
     <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-ink/95 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-2xl backdrop-blur lg:hidden">
       <div className="grid grid-cols-5 gap-1">
         {mobileItems.map((item) => {
           const Icon = item.icon;
-          const activeItem = active === item.id || (item.id === "settings" && !["dashboard", "leads", "pipeline", "followups"].includes(active));
+          const activeItem = active === item.id || (item.id === "settings" && !["today", "leads", "pipeline", "followups"].includes(active));
           return (
             <button
               key={item.id}
@@ -1413,6 +1430,186 @@ function LeadScorePill({ lead, today }: { lead: Lead; today: string }) {
     <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${temperature.className}`}>
       {temperature.label} · {score}
     </span>
+  );
+}
+
+function TodayPage({
+  today,
+  leads,
+  tasks,
+  stats,
+  onAddLead,
+  onOpenLead,
+  onStatus,
+  onPatch,
+  onDone,
+  onOpenPipeline,
+  onOpenFollowups,
+  onCopied
+}: {
+  today: string;
+  leads: Lead[];
+  tasks: Task[];
+  stats: Record<string, number>;
+  onAddLead: () => void;
+  onOpenLead: (id: string) => void;
+  onStatus: (id: string, status: LeadStatus) => void;
+  onPatch: (id: string, patch: Partial<Lead>) => void;
+  onDone: (id: string) => void;
+  onOpenPipeline: () => void;
+  onOpenFollowups: () => void;
+  onCopied: () => void;
+}) {
+  const activeLeads = leads.filter((lead) => !["Виграно", "Програно"].includes(lead.status));
+  const dueLeads = activeLeads.filter((lead) => lead.follow_up_date && lead.follow_up_date <= today);
+  const overdueLeads = dueLeads.filter((lead) => lead.follow_up_date < today);
+  const readyForOutreach = activeLeads.filter((lead) => ["Новий", "Проаналізований"].includes(lead.status));
+  const waitingLeads = activeLeads.filter((lead) => ["Написав", "КП відправлено", "Думає"].includes(lead.status));
+  const actionQueue = [...activeLeads]
+    .filter((lead) => dueLeads.some((item) => item.id === lead.id) || ["Новий", "Проаналізований", "Відповів", "КП відправлено", "Думає"].includes(lead.status))
+    .sort((a, b) => {
+      const dateA = a.follow_up_date || "9999-99-99";
+      const dateB = b.follow_up_date || "9999-99-99";
+      if (dateA !== dateB) return dateA.localeCompare(dateB);
+      return getLeadScore(b, today) - getLeadScore(a, today);
+    })
+    .slice(0, 9);
+  const topDeal = [...activeLeads].sort((a, b) => numericValue(b.deal_value) - numericValue(a.deal_value))[0];
+  const todayTasks = tasks.filter((task) => task.due_date <= today && task.status !== "Done").slice(0, 6);
+  const firstPriorityLead = overdueLeads[0] ?? actionQueue[0] ?? null;
+
+  async function copyLeadMessage(lead: Lead) {
+    await navigator.clipboard.writeText(buildPersonalizedMessage(lead));
+    onCopied();
+  }
+
+  return (
+    <div className="space-y-5">
+      <section className="grid gap-3 md:grid-cols-4">
+        <button className="rounded-lg border border-red-400/35 bg-red-500/10 p-4 text-left" onClick={onOpenFollowups}>
+          <div className="text-sm text-red-200">Горить</div>
+          <div className="mt-2 text-3xl font-black">{overdueLeads.length}</div>
+          <div className="mt-1 text-xs text-slate-400">прострочених follow-up</div>
+        </button>
+        <button className="rounded-lg border border-blue/35 bg-blue/10 p-4 text-left" onClick={onAddLead}>
+          <div className="text-sm text-sky-100">Писати</div>
+          <div className="mt-2 text-3xl font-black">{readyForOutreach.length}</div>
+          <div className="mt-1 text-xs text-slate-400">нових або проаналізованих</div>
+        </button>
+        <button className="rounded-lg border border-amber/35 bg-amber/10 p-4 text-left" onClick={onOpenFollowups}>
+          <div className="text-sm text-amber-100">Дотиснути</div>
+          <div className="mt-2 text-3xl font-black">{waitingLeads.length}</div>
+          <div className="mt-1 text-xs text-slate-400">після контакту або КП</div>
+        </button>
+        <button className="rounded-lg border border-mint/35 bg-mint/10 p-4 text-left" onClick={onOpenPipeline}>
+          <div className="text-sm text-emerald-100">Pipeline</div>
+          <div className="mt-2 text-2xl font-black">{moneyAmount(stats.pipeline)}</div>
+          <div className="mt-1 text-xs text-slate-400">найближчі гроші</div>
+        </button>
+      </section>
+
+      <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+        <Card>
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <SectionTitle title="Sales inbox" />
+              <p className="-mt-2 text-sm text-slate-400">Один список: кому писати, що писати, який статус поставити.</p>
+            </div>
+            <button className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-white px-3 text-sm font-semibold text-ink" onClick={onAddLead}>
+              <Plus className="h-4 w-4" />
+              Лід
+            </button>
+          </div>
+          <div className="space-y-3">
+            {actionQueue.length ? actionQueue.map((lead) => {
+              const score = getLeadScore(lead, today);
+              const temperature = getLeadTemperature(score);
+              const isOverdue = lead.follow_up_date && lead.follow_up_date < today;
+              const isDueToday = lead.follow_up_date === today;
+              return (
+                <article key={lead.id} className="rounded-lg border border-line bg-panel2 p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <button className="min-w-0 text-left" onClick={() => onOpenLead(lead.id)}>
+                      <div className="text-base font-black text-blue">{lead.business_name}</div>
+                      <div className="mt-1 text-xs text-slate-400">{lead.niche} · {lead.city || "місто не вказано"} · {moneyAmount(numericValue(lead.deal_value))}</div>
+                    </button>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      {isOverdue ? <span className="rounded-full border border-red-400/40 px-2 py-1 text-xs text-red-200">прострочено</span> : null}
+                      {isDueToday ? <span className="rounded-full border border-amber/40 px-2 py-1 text-xs text-amber-100">сьогодні</span> : null}
+                      <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${temperature.className}`}>{temperature.label} · {score}</span>
+                      <Badge status={lead.status} />
+                    </div>
+                  </div>
+
+                  <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_0.9fr]">
+                    <div className="rounded-md border border-line bg-ink/40 p-3">
+                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Наступна дія</div>
+                      <div className="mt-2 text-sm leading-6 text-slate-200">{lead.next_action || getSuggestedNextAction(lead, today)}</div>
+                    </div>
+                    <div className="rounded-md border border-line bg-ink/40 p-3">
+                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Готовий текст</div>
+                      <div className="mt-2 line-clamp-2 text-sm leading-6 text-slate-300">{buildPersonalizedMessage(lead)}</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button className="min-h-10 rounded-lg bg-white px-3 text-sm font-semibold text-ink" onClick={() => copyLeadMessage(lead)}>
+                      Скопіювати текст
+                    </button>
+                    <button className="min-h-10 rounded-lg border border-line px-3 text-sm font-semibold" onClick={() => onStatus(lead.id, "Написав")}>Написав</button>
+                    <button className="min-h-10 rounded-lg border border-line px-3 text-sm font-semibold" onClick={() => onStatus(lead.id, "Відповів")}>Відповів</button>
+                    <button className="min-h-10 rounded-lg border border-line px-3 text-sm font-semibold" onClick={() => onStatus(lead.id, "КП відправлено")}>КП</button>
+                    <button className="min-h-10 rounded-lg border border-line px-3 text-sm font-semibold" onClick={() => onPatch(lead.id, { follow_up_date: addDays(today, 2) })}>+2 дні</button>
+                    <button className="min-h-10 rounded-lg border border-line px-3 text-sm font-semibold" onClick={() => onOpenLead(lead.id)}>Деталі</button>
+                  </div>
+                </article>
+              );
+            }) : (
+              <div className="rounded-lg border border-dashed border-line p-8 text-center text-sm text-slate-500">
+                Черга чиста. Додай нові ліди або відкрий pipeline.
+              </div>
+            )}
+          </div>
+        </Card>
+
+        <div className="space-y-5">
+          <Card>
+            <SectionTitle title="Рішення дня" />
+            <div className="space-y-3">
+              <div className="rounded-lg border border-line bg-panel2 p-3">
+                <div className="text-sm text-slate-400">Перший пріоритет</div>
+                <div className="mt-2 font-black">{firstPriorityLead?.business_name || "Немає термінового"}</div>
+                <div className="mt-1 text-sm text-slate-400">{firstPriorityLead ? getSuggestedNextAction(firstPriorityLead, today) : "Можна поповнити базу лідів"}</div>
+              </div>
+              <div className="rounded-lg border border-line bg-panel2 p-3">
+                <div className="text-sm text-slate-400">Найбільша відкрита угода</div>
+                <div className="mt-2 font-black">{topDeal?.business_name || "Немає активної угоди"}</div>
+                <div className="mt-1 text-sm text-slate-400">{topDeal ? moneyAmount(numericValue(topDeal.deal_value)) : "0 €"}</div>
+              </div>
+            </div>
+          </Card>
+
+          <Card>
+            <SectionTitle title="Завдання сьогодні" />
+            <div className="space-y-2">
+              {todayTasks.length ? todayTasks.map((task) => (
+                <div key={task.id} className="flex items-center justify-between gap-3 rounded-lg border border-line bg-panel2 p-3">
+                  <div>
+                    <div className="font-semibold">{task.title}</div>
+                    <div className="text-xs text-slate-400">{task.priority} · {task.type}</div>
+                  </div>
+                  <IconButton label="Виконано" onClick={() => onDone(task.id)}>
+                    <Check className="h-4 w-4" />
+                  </IconButton>
+                </div>
+              )) : (
+                <div className="rounded-lg border border-dashed border-line p-4 text-center text-sm text-slate-500">Задач немає</div>
+              )}
+            </div>
+          </Card>
+        </div>
+      </div>
+    </div>
   );
 }
 
