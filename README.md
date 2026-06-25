@@ -53,3 +53,31 @@ pnpm build
 ```
 
 Після підключення репозиторію до Vercel встановіть змінні Supabase у Project Settings → Environment Variables.
+
+## Telegram апдейти
+
+Система може надсилати ранковий і вечірній дайджест у Telegram через Vercel Cron.
+
+1. Створіть бота через `@BotFather`.
+2. Додайте у Vercel Environment Variables:
+
+```bash
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_CHAT_ID=...
+CRON_SECRET=...
+NEXT_PUBLIC_APP_URL=https://hugo-media-sales-os.vercel.app
+```
+
+`CRON_SECRET` має збігатися з секретом Vercel Cron. Якщо змінна не задана, endpoint можна запускати вручну без авторизації, але для production її краще додати.
+
+Cron jobs у `vercel.json`:
+
+- `/api/telegram/daily?type=morning` — 06:00 UTC, тобто 09:00 за Києвом влітку.
+- `/api/telegram/daily?type=evening` — 17:00 UTC, тобто 20:00 за Києвом влітку.
+
+Для ручного тесту відкрийте:
+
+```bash
+/api/telegram/daily?type=morning
+/api/telegram/daily?type=evening
+```
