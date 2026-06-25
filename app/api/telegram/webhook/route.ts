@@ -121,7 +121,11 @@ async function sendTelegram(chatId: number | string, text: string) {
       disable_web_page_preview: true,
       parse_mode: "HTML",
       reply_markup: {
-        keyboard: [[{ text: "📊 Статус зараз" }], [{ text: "Відкрити CRM" }]],
+        keyboard: [
+          [{ text: "📊 Статус зараз" }, { text: "🔥 Кому писати" }],
+          [{ text: "⏰ Прострочені" }, { text: "💶 Pipeline" }],
+          [{ text: "Відкрити CRM" }]
+        ],
         resize_keyboard: true
       }
     })
@@ -163,6 +167,42 @@ function buildStatus(leads: LeadRow[], tasks: TaskRow[], today: string) {
   return lines.join("\n");
 }
 
+function buildLeadList(title: string, leads: LeadRow[], today: string) {
+  const lines = [
+    `<b>${escapeHtml(title)}</b>`,
+    "",
+    ...(leads.length
+      ? leads.slice(0, 8).map((lead, index) => `${index + 1}. ${escapeHtml(lead.business_name)} · ${leadScore(lead, today)}/100 · ${money(lead.deal_value)}\n   ${escapeHtml(leadAction(lead, today))}`)
+      : ["Немає лідів у цьому списку"])
+  ];
+
+  if (appUrl) {
+    lines.push("", `<a href="${appUrl}">Відкрити CRM</a>`);
+  }
+
+  return lines.join("\n");
+}
+
+function buildPipeline(leads: LeadRow[], today: string) {
+  const activeLeads = leads.filter((lead) => !["Виграно", "Програно"].includes(lead.status));
+  const topDeals = [...activeLeads].sort((a, b) => (Number(b.deal_value) || 0) - (Number(a.deal_value) || 0)).slice(0, 8);
+  const total = activeLeads.reduce((sum, lead) => sum + (Number(lead.deal_value) || 0), 0);
+  const lines = [
+    "<b>Pipeline зараз</b>",
+    `Всього: ${money(total)}`,
+    "",
+    ...(topDeals.length
+      ? topDeals.map((lead, index) => `${index + 1}. ${escapeHtml(lead.business_name)} · ${money(lead.deal_value)} · ${leadScore(lead, today)}/100\n   ${escapeHtml(leadAction(lead, today))}`)
+      : ["Немає активного pipeline"])
+  ];
+
+  if (appUrl) {
+    lines.push("", `<a href="${appUrl}">Відкрити CRM</a>`);
+  }
+
+  return lines.join("\n");
+}
+
 export async function POST(request: Request) {
   try {
     const update = (await request.json()) as TelegramUpdate;
@@ -178,8 +218,9 @@ export async function POST(request: Request) {
       return Response.json({ ok: true });
     }
 
-    if (!["/start", "/status", "📊 Статус зараз"].includes(text)) {
-      await sendTelegram(chatId, "Натисни кнопку <b>📊 Статус зараз</b> або напиши /status.");
+    const knownActions = ["/start", "/status", "📊 Статус зараз", "🔥 Кому писати", "⏰ Прострочені", "💶 Pipeline"];
+    if (!knownActions.includes(text)) {
+      await sendTelegram(chatId, "Натисни <b>📊 Статус зараз</b>, <b>🔥 Кому писати</b>, <b>⏰ Прострочені</b> або напиши /status.");
       return Response.json({ ok: true });
     }
 
@@ -188,6 +229,28 @@ export async function POST(request: Request) {
       supabaseGet<LeadRow[]>("leads", "select=id,business_name,status,deal_value,follow_up_date,next_action,updated_at,created_at&order=follow_up_date.asc"),
       supabaseGet<TaskRow[]>("tasks", "select=id,title,due_date,status&order=due_date.asc")
     ]);
+
+    const activeLeads = leads.filter((lead) => !["Виграно", "Програно"].includes(lead.status));
+    if (text === "🔥 Кому писати") {
+      const outreach = activeLeads
+        .filter((lead) => ["Новий", "Проаналізований", "Відповів", "КП відправлено", "Думає"].includes(lead.status))
+        .sort((a, b) => leadScore(b, today) - leadScore(a, today));
+      await sendTelegram(chatId, buildLeadList("Кому писати зараз", outreach, today));
+      return Response.json({ ok: true });
+    }
+
+    if (text === "⏰ Прострочені") {
+      const overdue = activeLeads
+        .filter((lead) => lead.follow_up_date && lead.follow_up_date < today)
+        .sort((a, b) => (a.follow_up_date || "").localeCompare(b.follow_up_date || ""));
+      await sendTelegram(chatId, buildLeadList("Прострочені follow-up", overdue, today));
+      return Response.json({ ok: true });
+    }
+
+    if (text === "💶 Pipeline") {
+      await sendTelegram(chatId, buildPipeline(leads, today));
+      return Response.json({ ok: true });
+    }
 
     await sendTelegram(chatId, buildStatus(leads, tasks, today));
     return Response.json({ ok: true });
