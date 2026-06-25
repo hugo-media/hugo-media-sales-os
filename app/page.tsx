@@ -10,12 +10,15 @@ import {
   Edit3,
   Euro,
   FileText,
+  Flame,
   LayoutDashboard,
   ListChecks,
+  MoreHorizontal,
   MessageSquare,
   Plus,
   Search,
   Settings,
+  Sparkles,
   Trash2,
   Users,
   X
@@ -333,6 +336,65 @@ const moneyAmount = (value: number) => `${new Intl.NumberFormat("uk-UA").format(
 const numericValue = (value: unknown) => {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : 0;
+};
+
+const lossReasonPrefix = "Причина втрати:";
+
+const getLossReason = (lead: Lead) => {
+  const reasonLine = lead.notes
+    .split("\n")
+    .map((line) => line.trim())
+    .find((line) => line.toLowerCase().startsWith(lossReasonPrefix.toLowerCase()));
+  return reasonLine?.slice(lossReasonPrefix.length).trim() ?? "";
+};
+
+const setLossReasonInNotes = (notes: string, reason: string) => {
+  const lines = notes
+    .split("\n")
+    .filter((line) => !line.trim().toLowerCase().startsWith(lossReasonPrefix.toLowerCase()));
+  const nextLines = reason.trim() ? [`${lossReasonPrefix} ${reason.trim()}`, ...lines] : lines;
+  return nextLines.join("\n").trim();
+};
+
+const getLeadScore = (lead: Lead, today: string) => {
+  let score = 20;
+  const value = numericValue(lead.deal_value);
+  if (value >= 2000) score += 24;
+  else if (value >= 1000) score += 18;
+  else if (value >= 300) score += 10;
+  if (["Відповів", "КП відправлено", "Дзвінок заплановано", "Думає"].includes(lead.status)) score += 24;
+  if (lead.follow_up_date && lead.follow_up_date < today) score += 18;
+  if (lead.follow_up_date === today) score += 14;
+  if (lead.offer_angle) score += 6;
+  if (lead.contact_name || lead.phone || lead.email || lead.instagram_url) score += 6;
+  if (lead.status === "Програно") score -= 30;
+  if (lead.status === "Виграно") score -= 20;
+  return Math.max(0, Math.min(100, score));
+};
+
+const getLeadTemperature = (score: number) => {
+  if (score >= 72) return { label: "гарячий", className: "border-red-400/40 bg-red-500/10 text-red-100" };
+  if (score >= 48) return { label: "теплий", className: "border-amber/40 bg-amber/10 text-amber-100" };
+  return { label: "холодний", className: "border-blue/30 bg-blue/10 text-sky-100" };
+};
+
+const getSuggestedNextAction = (lead: Lead, today: string) => {
+  if (lead.status === "Новий" || lead.status === "Проаналізований") return "Написати перше персоналізоване повідомлення";
+  if (lead.status === "Написав") return lead.follow_up_date && lead.follow_up_date <= today ? "Зробити короткий follow-up після першого контакту" : "Дочекатися follow-up дати";
+  if (lead.status === "Відповів") return "Скинути деталі пакета і запропонувати короткий дзвінок";
+  if (lead.status === "КП відправлено") return "Повернутися з конкретним наступним кроком після КП";
+  if (lead.status === "Дзвінок заплановано") return "Підготувати 3 тези для дзвінка";
+  if (lead.status === "Думає") return "Уточнити головний сумнів і дедлайн рішення";
+  if (lead.status === "Програно") return getLossReason(lead) ? "Повернутися пізніше з іншим кутом" : "Зафіксувати причину втрати";
+  if (lead.status === "Виграно") return "Підготувати бриф і дату зйомки";
+  return lead.next_action || "Визначити наступну дію";
+};
+
+const buildPersonalizedMessage = (lead: Lead) => {
+  const name = lead.contact_name ? `, ${lead.contact_name}` : "";
+  const angle = lead.offer_angle || `показати ${lead.business_name} не просто як послугу, а як історію людини за бізнесом`;
+  const weakPoint = lead.weak_point ? ` Бачу потенціал: ${lead.weak_point}` : "";
+  return `Вітаю${name}! Я Hugo з Hugo Media. Побачив ${lead.business_name} і думаю, що тут можна ${angle}.${weakPoint} Можу запропонувати короткий медійний формат, який підсилить довіру до вас у ніші "${lead.niche}".`;
 };
 
 const seedLeads: Lead[] = [
@@ -1210,6 +1272,7 @@ export default function SalesOs() {
             leads={filteredLeads}
             allLeads={leads}
             packages={activePackages}
+            today={today}
             query={query}
             setQuery={setQuery}
             statusFilter={statusFilter}
@@ -1231,6 +1294,7 @@ export default function SalesOs() {
         ) : active === "pipeline" ? (
           <PipelinePage
             leads={leads}
+            today={today}
             onOpen={setSelectedLeadId}
             onEdit={(lead) => { setEditingLead(lead); setIsLeadFormOpen(true); }}
             onDelete={deleteLead}
@@ -1244,7 +1308,7 @@ export default function SalesOs() {
         ) : active === "calendar" ? (
           <CalendarPage today={today} leads={leads} tasks={tasks} contentItems={contentItems} />
         ) : active === "content" ? (
-          <ContentPage today={today} items={contentItems} setItems={setContentItems} />
+          <ContentPage today={today} items={contentItems} leads={leads} setItems={setContentItems} />
         ) : active === "scripts" ? (
           <TemplatesPage
             templates={templates}
@@ -1306,13 +1370,15 @@ export default function SalesOs() {
 }
 
 function MobileNav({ active, onNavigate }: { active: string; onNavigate: (id: string) => void }) {
-  const mobileItems = nav.filter((item) => ["dashboard", "leads", "pipeline", "followups", "tasks", "settings"].includes(item.id));
+  const mobileItems = nav
+    .filter((item) => ["dashboard", "leads", "pipeline", "followups", "settings"].includes(item.id))
+    .map((item) => (item.id === "settings" ? { ...item, label: "Ще", icon: MoreHorizontal } : item));
   return (
     <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-ink/95 px-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] pt-2 shadow-2xl backdrop-blur lg:hidden">
-      <div className="grid grid-cols-6 gap-1">
+      <div className="grid grid-cols-5 gap-1">
         {mobileItems.map((item) => {
           const Icon = item.icon;
-          const activeItem = active === item.id;
+          const activeItem = active === item.id || (item.id === "settings" && !["dashboard", "leads", "pipeline", "followups"].includes(active));
           return (
             <button
               key={item.id}
@@ -1323,7 +1389,7 @@ function MobileNav({ active, onNavigate }: { active: string; onNavigate: (id: st
               title={item.label}
             >
               <Icon className="h-4 w-4" />
-              <span className="max-w-full truncate">{item.id === "followups" ? "Follow" : item.label}</span>
+              <span className="max-w-full truncate">{item.id === "followups" ? "Follow-up" : item.label}</span>
             </button>
           );
         })}
@@ -1338,6 +1404,16 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
 
 function Badge({ status }: { status: LeadStatus }) {
   return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusStyles[status]}`}>{status}</span>;
+}
+
+function LeadScorePill({ lead, today }: { lead: Lead; today: string }) {
+  const score = getLeadScore(lead, today);
+  const temperature = getLeadTemperature(score);
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${temperature.className}`}>
+      {temperature.label} · {score}
+    </span>
+  );
 }
 
 function Dashboard({ today, stats, leads, tasks, packages, dailyTargets, onDailyTargetsChange, onResetDailyTargets, onOpenSettings, onOpenFollowups, onOpenPipeline, onAddLead, onDone, onOpenLead, onStatus }: {
@@ -1364,7 +1440,14 @@ function Dashboard({ today, stats, leads, tasks, packages, dailyTargets, onDaily
   const overdueFollowUps = dueFollowUps.filter((lead) => lead.follow_up_date < today);
   const todayFollowUps = dueFollowUps.filter((lead) => lead.follow_up_date === today);
   const freshLeads = leads.filter((lead) => ["Новий", "Проаналізований"].includes(lead.status)).slice(0, 4);
-  const workQueue = [...dueFollowUps, ...freshLeads.filter((lead) => !dueFollowUps.some((item) => item.id === lead.id))].slice(0, 7);
+  const activeLeads = leads.filter((lead) => !["Виграно", "Програно"].includes(lead.status));
+  const rankedLeads = [...activeLeads].sort((a, b) => getLeadScore(b, today) - getLeadScore(a, today));
+  const focusQueue = rankedLeads
+    .filter((lead) => dueFollowUps.some((item) => item.id === lead.id) || ["Новий", "Проаналізований", "Відповів", "КП відправлено", "Думає"].includes(lead.status))
+    .slice(0, 5);
+  const workQueue = [...dueFollowUps, ...freshLeads.filter((lead) => !dueFollowUps.some((item) => item.id === lead.id))]
+    .sort((a, b) => getLeadScore(b, today) - getLeadScore(a, today))
+    .slice(0, 7);
   const statCards = [
     ["Всього лідів", stats.total],
     ["Написано", stats.contacted],
@@ -1405,15 +1488,42 @@ function Dashboard({ today, stats, leads, tasks, packages, dailyTargets, onDaily
         <Card>
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
-              <SectionTitle title="Робота зараз" />
-              <p className="-mt-2 text-sm text-slate-400">Спочатку прострочені, потім сьогодні, потім нові ліди.</p>
+              <SectionTitle title="Сьогоднішній фокус" />
+              <p className="-mt-2 text-sm text-slate-400">П'ять дій з найвищим шансом руху в продажах.</p>
             </div>
             <button className="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-ink" onClick={onAddLead}>+ Лід</button>
+          </div>
+          <div className="mb-4 grid gap-2">
+            {focusQueue.length ? focusQueue.map((lead, index) => {
+              const score = getLeadScore(lead, today);
+              const temperature = getLeadTemperature(score);
+              return (
+                <button key={lead.id} className="grid gap-3 rounded-lg border border-line bg-panel2 p-3 text-left transition hover:border-blue/60 hover:bg-white hover:text-ink sm:grid-cols-[36px_1fr_auto]" onClick={() => onOpenLead(lead.id)}>
+                  <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-line bg-ink text-sm font-black text-blue">{index + 1}</span>
+                  <span className="min-w-0">
+                    <span className="block font-black">{lead.business_name}</span>
+                    <span className="mt-1 block text-sm opacity-75">{getSuggestedNextAction(lead, today)}</span>
+                  </span>
+                  <span className="flex flex-wrap items-center gap-2 sm:justify-end">
+                    <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${temperature.className}`}>{temperature.label}</span>
+                    <span className="rounded-full border border-line px-2.5 py-1 text-xs font-semibold">{score}/100</span>
+                  </span>
+                </button>
+              );
+            }) : (
+              <div className="rounded-lg border border-dashed border-line p-6 text-center text-sm text-slate-500">На сьогодні немає пріоритетних продажних дій.</div>
+            )}
+          </div>
+          <div className="mb-4 border-t border-line pt-4">
+            <SectionTitle title="Робота зараз" />
+            <p className="-mt-2 text-sm text-slate-400">Спочатку прострочені, потім сьогодні, потім нові ліди.</p>
           </div>
           <div className="space-y-3">
             {workQueue.length ? workQueue.map((lead) => {
               const isOverdue = lead.follow_up_date && lead.follow_up_date < today;
               const isDueToday = lead.follow_up_date === today;
+              const score = getLeadScore(lead, today);
+              const temperature = getLeadTemperature(score);
               return (
                 <article key={lead.id} className="rounded-lg border border-line bg-panel2 p-3">
                   <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1424,10 +1534,11 @@ function Dashboard({ today, stats, leads, tasks, packages, dailyTargets, onDaily
                     <div className="flex flex-wrap gap-2">
                       {isOverdue ? <span className="rounded-full border border-red-400/40 px-2 py-1 text-xs text-red-200">прострочено</span> : null}
                       {isDueToday ? <span className="rounded-full border border-amber/40 px-2 py-1 text-xs text-amber-100">сьогодні</span> : null}
+                      <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${temperature.className}`}>{score}/100</span>
                       <Badge status={lead.status} />
                     </div>
                   </div>
-                  <p className="mt-3 rounded-md border border-line bg-ink/40 p-2 text-sm text-slate-300">{lead.next_action || "Наступна дія не вказана"}</p>
+                  <p className="mt-3 rounded-md border border-line bg-ink/40 p-2 text-sm text-slate-300">{lead.next_action || getSuggestedNextAction(lead, today)}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button className="min-h-10 rounded-lg bg-white px-3 text-sm font-semibold text-ink" onClick={() => onOpenLead(lead.id)}>Відкрити</button>
                     <button className="min-h-10 rounded-lg border border-line px-3 text-sm font-semibold" onClick={() => onStatus(lead.id, "Написав")}>Написав</button>
@@ -1547,6 +1658,7 @@ function LeadsPage(props: {
   leads: Lead[];
   allLeads: Lead[];
   packages: PackageItem[];
+  today: string;
   query: string;
   setQuery: (value: string) => void;
   statusFilter: string;
@@ -1585,7 +1697,10 @@ function LeadsPage(props: {
                 <div className="truncate font-black text-blue">{lead.business_name}</div>
                 <div className="mt-1 text-xs text-slate-400">{lead.niche} · {lead.city || "місто не вказано"}</div>
               </button>
-              <Badge status={lead.status} />
+              <div className="flex flex-col items-end gap-2">
+                <Badge status={lead.status} />
+                <LeadScorePill lead={lead} today={props.today} />
+              </div>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
               <div className="rounded-md border border-line bg-ink/50 p-2">
@@ -1615,9 +1730,10 @@ function LeadsPage(props: {
       </div>
       <div className="hidden lg:block">
         <DataTable
-          headers={["Бізнес", "Ніша", "Місто", "Контакт", "Статус", "Пакет", "Сума", "Follow-up", "Наступна дія", "Дії"]}
+          headers={["Бізнес", "Score", "Ніша", "Місто", "Контакт", "Статус", "Пакет", "Сума", "Follow-up", "Наступна дія", "Дії"]}
           rows={props.leads.map((lead) => [
             <button key="name" className="font-semibold text-blue" onClick={() => props.onOpen(lead.id)}>{lead.business_name}</button>,
+            <LeadScorePill key="score" lead={lead} today={props.today} />,
             lead.niche,
             lead.city,
             lead.contact_name,
@@ -1641,9 +1757,11 @@ function LeadsPage(props: {
 
 function PipelinePage({
   leads,
+  today,
   onOpen
 }: {
   leads: Lead[];
+  today: string;
   onOpen: (id: string) => void;
   onEdit: (lead: Lead) => void;
   onDelete: (id: string) => void;
@@ -1695,6 +1813,10 @@ function PipelinePage({
                       <div className="mt-3 flex items-center justify-between gap-3 text-xs">
                         <span className="truncate text-slate-400">{lead.package_interest || "пакет не вказано"}</span>
                         <strong className="shrink-0 text-sm text-slate-100">{moneyAmount(numericValue(lead.deal_value))}</strong>
+                      </div>
+                      <div className="mt-3 flex items-center justify-between gap-2">
+                        <LeadScorePill lead={lead} today={today} />
+                        {getLossReason(lead) ? <span className="rounded-full border border-rose/35 px-2 py-1 text-xs text-rose-200">{getLossReason(lead)}</span> : null}
                       </div>
                       {lead.follow_up_date || lead.next_action ? (
                         <div className="mt-3 rounded-md border border-line bg-ink/35 p-2 text-xs text-slate-300">
@@ -1829,6 +1951,11 @@ function LeadSidePanel({
 }) {
   const quickStatuses: LeadStatus[] = ["Написав", "Відповів", "КП відправлено", "Дзвінок заплановано", "Думає", "Виграно"];
   const visibleTemplates = templates.slice(0, 5);
+  const score = getLeadScore(lead, today);
+  const temperature = getLeadTemperature(score);
+  const suggestedAction = getSuggestedNextAction(lead, today);
+  const lossReason = getLossReason(lead);
+  const aiMessage = buildPersonalizedMessage(lead);
   const contactRows = [
     ["Контакт", lead.contact_name],
     ["Канал", lead.contact_channel],
@@ -1847,6 +1974,10 @@ function LeadSidePanel({
           <h2 className="mt-1 text-2xl font-black">{lead.business_name}</h2>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Badge status={lead.status} />
+            <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${temperature.className}`}>
+              <Flame className="mr-1 inline h-3 w-3" />
+              {temperature.label} · {score}/100
+            </span>
             <span className="rounded-full border border-line px-2.5 py-1 text-xs text-slate-300">{lead.niche || "ніша не вказана"}</span>
             <span className="rounded-full border border-line px-2.5 py-1 text-xs text-slate-300">{lead.city || "місто не вказано"}</span>
           </div>
@@ -1862,7 +1993,25 @@ function LeadSidePanel({
               <Input label="Follow-up дата" type="date" value={lead.follow_up_date} onChange={(value) => onPatch({ follow_up_date: value })} />
               <Input label="Останній контакт" type="date" value={lead.last_contact_date} onChange={(value) => onPatch({ last_contact_date: value })} />
             </div>
-            <Textarea label="Наступна дія" value={lead.next_action} onChange={(value) => onPatch({ next_action: value })} />
+            <Textarea label="Наступна дія" value={lead.next_action || suggestedAction} onChange={(value) => onPatch({ next_action: value })} />
+            <div className="rounded-lg border border-blue/30 bg-blue/10 p-3">
+              <div className="mb-1 flex items-center gap-2 text-sm font-bold text-sky-100">
+                <Sparkles className="h-4 w-4" />
+                Підказка системи
+              </div>
+              <p className="text-sm text-slate-300">{suggestedAction}</p>
+              <button className="mt-3 rounded-lg border border-blue/40 px-3 py-2 text-xs font-semibold text-sky-100 hover:bg-white hover:text-ink" onClick={() => onPatch({ next_action: suggestedAction })}>
+                Поставити як next action
+              </button>
+            </div>
+            {lead.status === "Програно" ? (
+              <Select
+                label="Причина втрати"
+                value={lossReason || "немає відповіді"}
+                onChange={(reason) => onPatch({ notes: setLossReasonInNotes(lead.notes, reason) })}
+                options={["немає відповіді", "дорого", "не той сегмент", "пізніше", "не зрозумів цінність", "інший підрядник"]}
+              />
+            ) : null}
             <div className="flex flex-wrap gap-2">
               {quickStatuses.map((status) => (
                 <button key={status} className="rounded-lg border border-line px-3 py-2 text-xs font-semibold hover:bg-white hover:text-ink" onClick={() => onStatus(status)}>
@@ -1870,6 +2019,18 @@ function LeadSidePanel({
                 </button>
               ))}
             </div>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <SectionTitle title="Персоналізований підхід" />
+            <span className="text-xs text-slate-500">на основі картки ліда</span>
+          </div>
+          <div className="rounded-lg border border-line bg-panel2 p-3 text-sm leading-6 text-slate-200">{aiMessage}</div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button className="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-ink" onClick={() => { void navigator.clipboard?.writeText(aiMessage); onCopied(); }}>Скопіювати</button>
+            <button className="rounded-lg border border-line px-3 py-2 text-sm font-semibold" onClick={() => onPatch({ next_action: "Надіслати персоналізоване повідомлення" })}>Додати в next action</button>
           </div>
         </Card>
 
@@ -2133,8 +2294,30 @@ function CalendarPage({ today, leads, tasks, contentItems }: { today: string; le
   );
 }
 
-function ContentPage({ today, items, setItems }: { today: string; items: ContentItem[]; setItems: React.Dispatch<React.SetStateAction<ContentItem[]>> }) {
+function ContentPage({ today, items, leads, setItems }: { today: string; items: ContentItem[]; leads: Lead[]; setItems: React.Dispatch<React.SetStateAction<ContentItem[]>> }) {
   const [editing, setEditing] = useState<ContentItem | null>(null);
+  const activeNiches = Array.from(
+    leads
+      .filter((lead) => !["Програно", "Виграно"].includes(lead.status))
+      .reduce((map, lead) => {
+        const current = map.get(lead.niche) ?? { count: 0, value: 0 };
+        map.set(lead.niche, { count: current.count + 1, value: current.value + numericValue(lead.deal_value) });
+        return map;
+      }, new Map<string, { count: number; value: number }>())
+  ).sort((a, b) => b[1].value - a[1].value);
+
+  const createSalesContent = (niche: string) => {
+    setEditing({
+      ...newContentItem(today),
+      topic: `Довіра до бізнесу в ніші: ${niche}`,
+      hook: "Люди купують не в логотипу, а в людини, якій довіряють.",
+      key_points: "Проблема довіри, обличчя власника, доказ експертності, медійний формат Hugo.",
+      CTA: "Напишіть Hugo, якщо хочете показати людину за бізнесом.",
+      target_niche: niche,
+      notes: "Створено з активного pipeline."
+    });
+  };
+
   return (
     <Card>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -2147,6 +2330,23 @@ function ContentPage({ today, items, setItems }: { today: string; items: Content
           Додати
         </button>
       </div>
+
+      <div className="mb-5 rounded-lg border border-blue/30 bg-blue/10 p-4">
+        <div className="mb-3 flex items-center gap-2 font-black text-sky-100">
+          <Sparkles className="h-4 w-4" />
+          Контент під продажі
+        </div>
+        <div className="grid gap-2 md:grid-cols-3">
+          {activeNiches.slice(0, 6).map(([niche, data]) => (
+            <button key={niche} className="rounded-lg border border-line bg-panel2 p-3 text-left hover:bg-white hover:text-ink" onClick={() => createSalesContent(niche)}>
+              <div className="font-semibold">{niche}</div>
+              <div className="mt-1 text-xs opacity-75">{data.count} лідів · {moneyAmount(data.value)}</div>
+              <div className="mt-2 text-xs text-blue">створити тему</div>
+            </button>
+          ))}
+        </div>
+      </div>
+
       <DataTable
         headers={["Дата", "Тема", "Хук", "Ніша", "Статус", "Платформа", "Дії"]}
         rows={items.map((item) => [
