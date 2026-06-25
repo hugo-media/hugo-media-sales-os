@@ -119,7 +119,11 @@ async function sendTelegram(text: string) {
       disable_web_page_preview: true,
       parse_mode: "HTML",
       reply_markup: {
-        keyboard: [[{ text: "📊 Статус зараз" }], [{ text: "Відкрити CRM" }]],
+        keyboard: [
+          [{ text: "📊 Статус зараз" }, { text: "🔥 Кому писати" }],
+          [{ text: "⏰ Прострочені" }, { text: "💶 Pipeline" }],
+          [{ text: "Відкрити CRM" }]
+        ],
         resize_keyboard: true
       }
     })
