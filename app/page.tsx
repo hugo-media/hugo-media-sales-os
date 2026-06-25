@@ -1317,6 +1317,7 @@ export default function SalesOs() {
             onDelete={deleteLead}
             onPatch={patchLead}
             onStatus={updateLeadStatus}
+            onCopied={() => setToast("Текст скопійовано")}
           />
         ) : active === "tasks" ? (
           <TasksPage today={today} tomorrow={tomorrow} tasks={tasks} leads={leads} onDone={markTaskDone} setTasks={setTasks} />
@@ -1956,7 +1957,9 @@ function PipelinePage({
   leads,
   today,
   onOpen,
-  onStatus
+  onPatch,
+  onStatus,
+  onCopied
 }: {
   leads: Lead[];
   today: string;
@@ -1965,11 +1968,13 @@ function PipelinePage({
   onDelete: (id: string) => void;
   onPatch: (id: string, patch: Partial<Lead>) => void;
   onStatus: (id: string, status: LeadStatus) => void;
+  onCopied: () => void;
 }) {
   const [draggingLeadId, setDraggingLeadId] = useState<string | null>(null);
   const activePipeline = leads.filter((lead) => lead.status !== "Програно");
   const total = activePipeline.reduce((sum, lead) => sum + numericValue(lead.deal_value), 0);
   const draggingLead = draggingLeadId ? leads.find((lead) => lead.id === draggingLeadId) ?? null : null;
+  const quickPipelineStatuses: LeadStatus[] = ["Написав", "Відповів", "КП відправлено", "Дзвінок заплановано", "Виграно"];
 
   function moveLeadToStatus(status: LeadStatus) {
     if (!draggingLead || draggingLead.status === status) {
@@ -1979,6 +1984,11 @@ function PipelinePage({
 
     onStatus(draggingLead.id, status);
     setDraggingLeadId(null);
+  }
+
+  async function copyLeadMessage(lead: Lead) {
+    await navigator.clipboard.writeText(buildPersonalizedMessage(lead));
+    onCopied();
   }
 
   return (
@@ -2021,6 +2031,7 @@ function PipelinePage({
             return (
               <section
                 key={status}
+                data-pipeline-status={status}
                 className={`flex max-h-[72vh] min-h-[520px] snap-start flex-col rounded-lg border p-3 transition ${
                   isDropTarget ? "border-blue/60 bg-blue/10" : "border-line bg-panel/80"
                 }`}
@@ -2072,6 +2083,28 @@ function PipelinePage({
                           {lead.next_action ? <div className="mt-1 line-clamp-2">{lead.next_action}</div> : null}
                         </div>
                       ) : null}
+                      <div className="mt-3 grid gap-2">
+                        <Select value={lead.status} onChange={(value) => onStatus(lead.id, value as LeadStatus)} options={statuses} />
+                        <div className="grid grid-cols-2 gap-2">
+                          <button className="min-h-9 rounded-lg bg-white px-2 text-xs font-semibold text-ink" onClick={() => copyLeadMessage(lead)}>
+                            Скопіювати
+                          </button>
+                          <button className="min-h-9 rounded-lg border border-line px-2 text-xs font-semibold" onClick={() => onPatch(lead.id, { follow_up_date: addDays(today, 2) })}>
+                            +2 дні
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {quickPipelineStatuses.map((nextStatus) => (
+                            <button
+                              key={nextStatus}
+                              className="rounded-lg border border-line px-2 py-1 text-[11px] font-semibold hover:bg-white hover:text-ink"
+                              onClick={() => onStatus(lead.id, nextStatus)}
+                            >
+                              {nextStatus}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </article>
                   )) : (
                     <div className="rounded-lg border border-dashed border-line p-4 text-center text-sm text-slate-500">Немає лідів</div>

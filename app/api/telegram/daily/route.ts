@@ -120,9 +120,9 @@ async function sendTelegram(text: string) {
       parse_mode: "HTML",
       reply_markup: {
         keyboard: [
-          [{ text: "📊 Статус зараз" }, { text: "🔥 Кому писати" }],
-          [{ text: "⏰ Прострочені" }, { text: "💶 Pipeline" }],
-          [{ text: "Відкрити CRM" }]
+          [{ text: "⚡ Що робити зараз" }, { text: "📊 Статус зараз" }],
+          [{ text: "🔥 Кому писати" }, { text: "⏰ Прострочені" }],
+          [{ text: "💶 Pipeline" }, { text: "Відкрити CRM" }]
         ],
         resize_keyboard: true
       }

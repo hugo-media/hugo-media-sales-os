@@ -122,9 +122,9 @@ async function sendTelegram(chatId: number | string, text: string) {
       parse_mode: "HTML",
       reply_markup: {
         keyboard: [
-          [{ text: "📊 Статус зараз" }, { text: "🔥 Кому писати" }],
-          [{ text: "⏰ Прострочені" }, { text: "💶 Pipeline" }],
-          [{ text: "Відкрити CRM" }]
+          [{ text: "⚡ Що робити зараз" }, { text: "📊 Статус зараз" }],
+          [{ text: "🔥 Кому писати" }, { text: "⏰ Прострочені" }],
+          [{ text: "💶 Pipeline" }, { text: "Відкрити CRM" }]
         ],
         resize_keyboard: true
       }
@@ -218,9 +218,9 @@ export async function POST(request: Request) {
       return Response.json({ ok: true });
     }
 
-    const knownActions = ["/start", "/status", "📊 Статус зараз", "🔥 Кому писати", "⏰ Прострочені", "💶 Pipeline"];
+    const knownActions = ["/start", "/status", "⚡ Що робити зараз", "📊 Статус зараз", "🔥 Кому писати", "⏰ Прострочені", "💶 Pipeline"];
     if (!knownActions.includes(text)) {
-      await sendTelegram(chatId, "Натисни <b>📊 Статус зараз</b>, <b>🔥 Кому писати</b>, <b>⏰ Прострочені</b> або напиши /status.");
+      await sendTelegram(chatId, "Натисни <b>⚡ Що робити зараз</b>, <b>🔥 Кому писати</b>, <b>⏰ Прострочені</b> або напиши /status.");
       return Response.json({ ok: true });
     }
 
