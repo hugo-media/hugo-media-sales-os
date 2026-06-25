@@ -1955,7 +1955,8 @@ function LeadsPage(props: {
 function PipelinePage({
   leads,
   today,
-  onOpen
+  onOpen,
+  onStatus
 }: {
   leads: Lead[];
   today: string;
@@ -1965,8 +1966,20 @@ function PipelinePage({
   onPatch: (id: string, patch: Partial<Lead>) => void;
   onStatus: (id: string, status: LeadStatus) => void;
 }) {
+  const [draggingLeadId, setDraggingLeadId] = useState<string | null>(null);
   const activePipeline = leads.filter((lead) => lead.status !== "Програно");
   const total = activePipeline.reduce((sum, lead) => sum + numericValue(lead.deal_value), 0);
+  const draggingLead = draggingLeadId ? leads.find((lead) => lead.id === draggingLeadId) ?? null : null;
+
+  function moveLeadToStatus(status: LeadStatus) {
+    if (!draggingLead || draggingLead.status === status) {
+      setDraggingLeadId(null);
+      return;
+    }
+
+    onStatus(draggingLead.id, status);
+    setDraggingLeadId(null);
+  }
 
   return (
     <div className="space-y-5">
@@ -1985,13 +1998,40 @@ function PipelinePage({
         </Card>
       </div>
 
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <SectionTitle title="Перетягування" />
+            <p className="-mt-2 text-sm text-slate-400">Перетягни картку мишкою в іншу колонку, щоб змінити статус ліда.</p>
+          </div>
+          {draggingLead ? (
+            <span className="rounded-full border border-blue/40 bg-blue/10 px-3 py-2 text-sm font-semibold text-sky-100">
+              Переносиш: {draggingLead.business_name}
+            </span>
+          ) : null}
+        </div>
+      </Card>
+
       <div className="snap-x overflow-x-auto pb-3">
         <div className="grid auto-cols-[82vw] grid-flow-col gap-3 lg:auto-cols-[280px]">
           {statuses.map((status) => {
             const columnLeads = leads.filter((lead) => lead.status === status);
             const columnValue = columnLeads.reduce((sum, lead) => sum + numericValue(lead.deal_value), 0);
+            const isDropTarget = Boolean(draggingLead && draggingLead.status !== status);
             return (
-              <section key={status} className="flex max-h-[72vh] min-h-[520px] snap-start flex-col rounded-lg border border-line bg-panel/80 p-3">
+              <section
+                key={status}
+                className={`flex max-h-[72vh] min-h-[520px] snap-start flex-col rounded-lg border p-3 transition ${
+                  isDropTarget ? "border-blue/60 bg-blue/10" : "border-line bg-panel/80"
+                }`}
+                onDragOver={(event) => {
+                  if (draggingLead) event.preventDefault();
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  moveLeadToStatus(status);
+                }}
+              >
                 <div className="mb-3 flex items-start justify-between gap-2">
                   <div>
                     <Badge status={status} />
@@ -2000,12 +2040,23 @@ function PipelinePage({
                 </div>
                 <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
                   {columnLeads.length ? columnLeads.map((lead) => (
-                    <button
+                    <article
                       key={lead.id}
-                      className="block w-full rounded-lg border border-line bg-panel2 p-3 text-left transition hover:border-blue/60 hover:bg-white hover:text-ink"
-                      onClick={() => onOpen(lead.id)}
+                      className={`block w-full cursor-grab rounded-lg border border-line bg-panel2 p-3 text-left transition hover:border-blue/60 hover:bg-white hover:text-ink active:cursor-grabbing ${
+                        draggingLeadId === lead.id ? "opacity-50 ring-2 ring-blue/60" : ""
+                      }`}
+                      draggable
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", lead.id);
+                        setDraggingLeadId(lead.id);
+                      }}
+                      onDragEnd={() => setDraggingLeadId(null)}
+                      aria-label={`Перетягнути ${lead.business_name}`}
                     >
-                      <div className="line-clamp-2 text-base font-black text-blue">{lead.business_name}</div>
+                      <button className="block w-full text-left" onClick={() => onOpen(lead.id)}>
+                        <div className="line-clamp-2 text-base font-black text-blue">{lead.business_name}</div>
+                      </button>
                       <div className="mt-1 text-xs text-slate-400">{lead.niche} · {lead.city || "місто не вказано"}</div>
                       <div className="mt-3 flex items-center justify-between gap-3 text-xs">
                         <span className="truncate text-slate-400">{lead.package_interest || "пакет не вказано"}</span>
@@ -2021,7 +2072,7 @@ function PipelinePage({
                           {lead.next_action ? <div className="mt-1 line-clamp-2">{lead.next_action}</div> : null}
                         </div>
                       ) : null}
-                    </button>
+                    </article>
                   )) : (
                     <div className="rounded-lg border border-dashed border-line p-4 text-center text-sm text-slate-500">Немає лідів</div>
                   )}
