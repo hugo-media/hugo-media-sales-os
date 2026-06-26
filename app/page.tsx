@@ -1036,7 +1036,7 @@ export default function SalesOs() {
         );
       return (
         matchesQuery &&
-        (statusFilter === "Усі" || lead.status === statusFilter) &&
+        (statusFilter === "Усі" || visibleLeadStatus(lead.status) === statusFilter) &&
         (nicheFilter === "Усі" || lead.niche === nicheFilter) &&
         (cityFilter === "Усі" || lead.city === cityFilter) &&
         (packageFilter === "Усі" || lead.package_interest === packageFilter)
