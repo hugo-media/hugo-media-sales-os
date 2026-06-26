@@ -33,6 +33,11 @@ body {
   color: var(--text-primary);
 }
 
+.app-shell {
+  background: var(--app-bg);
+  color: var(--text-primary);
+}
+
 .theme-dark {
   color-scheme: dark;
   --color-ink: 8 10 16;
@@ -89,6 +94,28 @@ body {
 .theme-light .bg-ink\/50,
 .theme-light .bg-ink\/35 {
   background-color: rgba(245, 239, 227, 0.78);
+}
+
+.theme-light .bg-panel\/80,
+.theme-light .bg-panel\/92 {
+  background-color: rgba(255, 255, 255, 0.94);
+}
+
+.theme-light .bg-panel2\/60,
+.theme-light .bg-panel2\/70 {
+  background-color: rgba(250, 247, 240, 0.96);
+}
+
+.theme-light table,
+.theme-light td,
+.theme-light th {
+  color: #211d18;
+}
+
+.theme-dark table,
+.theme-dark td,
+.theme-dark th {
+  color: #e5edf7;
 }
 
 button,

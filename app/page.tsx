@@ -1011,6 +1011,13 @@ export default function SalesOs() {
     }
   }, []);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("theme-light", theme === "light");
+    root.classList.toggle("theme-dark", theme === "dark");
+    root.style.background = "var(--app-bg)";
+  }, [theme]);
+
   function toggleTheme() {
     setTheme((current) => {
       const next = current === "light" ? "dark" : "light";
@@ -1269,7 +1276,7 @@ export default function SalesOs() {
   const pageTitle = nav.find((item) => item.id === active)?.label ?? "Дашборд";
 
   return (
-    <main className={`min-h-screen bg-[var(--app-bg)] text-[var(--text-primary)] transition-colors lg:grid lg:grid-cols-[280px_1fr] ${theme === "light" ? "theme-light" : "theme-dark"}`}>
+    <main className={`app-shell min-h-screen transition-colors lg:grid lg:grid-cols-[280px_1fr] ${theme === "light" ? "theme-light" : "theme-dark"}`}>
       <aside className="hidden border-b border-line bg-ink/92 px-4 py-4 lg:sticky lg:top-0 lg:block lg:h-screen lg:border-b-0 lg:border-r lg:px-5">
         <div className="mb-6 flex items-center justify-between gap-3">
           <button className="text-left" onClick={() => navigate("today")}>
