@@ -4,6 +4,7 @@ type LeadStatus =
   | "Написав"
   | "Відповів"
   | "КП відправлено"
+  | "Дзвінок"
   | "Дзвінок заплановано"
   | "Думає"
   | "Виграно"
@@ -63,7 +64,7 @@ function leadScore(lead: LeadRow, today: string) {
   if (value >= 2000) score += 24;
   else if (value >= 1000) score += 18;
   else if (value >= 300) score += 10;
-  if (["Відповів", "КП відправлено", "Дзвінок заплановано", "Думає"].includes(lead.status)) score += 24;
+  if (["Відповів", "КП відправлено", "Дзвінок", "Дзвінок заплановано", "Думає"].includes(lead.status)) score += 24;
   if (lead.follow_up_date && lead.follow_up_date < today) score += 18;
   if (lead.follow_up_date === today) score += 14;
   if (lead.status === "Програно") score -= 30;
@@ -77,6 +78,7 @@ function leadAction(lead: LeadRow, today: string) {
   if (lead.status === "Написав") return lead.follow_up_date && lead.follow_up_date <= today ? "Зробити follow-up" : "Дочекатися follow-up";
   if (lead.status === "Відповів") return "Скинути деталі пакета";
   if (lead.status === "КП відправлено") return "Follow-up після КП";
+  if (lead.status === "Дзвінок" || lead.status === "Дзвінок заплановано") return "Підготуватися до дзвінка";
   if (lead.status === "Думає") return "Уточнити сумнів і дедлайн";
   return "Відкрити CRM і визначити наступний крок";
 }
@@ -121,8 +123,9 @@ async function sendTelegram(text: string) {
       reply_markup: {
         keyboard: [
           [{ text: "⚡ Що робити зараз" }, { text: "📊 Статус зараз" }],
-          [{ text: "🔥 Кому писати" }, { text: "⏰ Прострочені" }],
-          [{ text: "💶 Pipeline" }, { text: "Відкрити CRM" }]
+          [{ text: "📞 Дзвінки" }, { text: "🔥 Кому писати" }],
+          [{ text: "⏰ Прострочені" }, { text: "💶 Pipeline" }],
+          [{ text: "Відкрити CRM" }]
         ],
         resize_keyboard: true
       }
@@ -142,6 +145,8 @@ function buildMorningDigest(leads: LeadRow[], tasks: TaskRow[], today: string) {
   const overdue = due.filter((lead) => lead.follow_up_date && lead.follow_up_date < today);
   const hot = [...activeLeads].sort((a, b) => leadScore(b, today) - leadScore(a, today)).slice(0, 5);
   const todayTasks = tasks.filter((task) => task.due_date && task.due_date <= today && task.status !== "Done");
+  const todayCalls = activeLeads.filter((lead) => (lead.status === "Дзвінок" || lead.status === "Дзвінок заплановано") && lead.follow_up_date === today);
+  const todayCallTasks = tasks.filter((task) => task.type === "call" && task.due_date === today && task.status !== "Done");
   const pipeline = activeLeads.reduce((sum, lead) => sum + (Number(lead.deal_value) || 0), 0);
 
   const lines = [
@@ -151,12 +156,22 @@ function buildMorningDigest(leads: LeadRow[], tasks: TaskRow[], today: string) {
     `🔥 Гарячих дій: ${hot.length}`,
     `⏰ Прострочено: ${overdue.length}`,
     `✉️ Follow-up сьогодні: ${due.length}`,
+    `📞 Дзвінки: ${todayCalls.length + todayCallTasks.length}`,
     `✅ Задач: ${todayTasks.length}`,
     `💶 Pipeline: ${money(pipeline)}`,
     "",
     "<b>Фокус на сьогодні</b>",
     ...hot.map((lead, index) => `${index + 1}. ${escapeHtml(lead.business_name)} · ${leadScore(lead, today)}/100\n   ${escapeHtml(leadAction(lead, today))}`)
   ];
+
+  if (todayCalls.length || todayCallTasks.length) {
+    lines.push(
+      "",
+      "<b>Дзвінки сьогодні</b>",
+      ...todayCalls.map((lead) => `• ${escapeHtml(lead.business_name)} — ${escapeHtml(leadAction(lead, today))}`),
+      ...todayCallTasks.map((task) => `• ${escapeHtml(task.title)}`)
+    );
+  }
 
   if (appUrl) {
     lines.push("", `<a href="${appUrl}">Відкрити CRM</a>`);

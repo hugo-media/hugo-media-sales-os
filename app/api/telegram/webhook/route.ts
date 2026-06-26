@@ -4,6 +4,7 @@ type LeadStatus =
   | "Написав"
   | "Відповів"
   | "КП відправлено"
+  | "Дзвінок"
   | "Дзвінок заплановано"
   | "Думає"
   | "Виграно"
@@ -24,6 +25,7 @@ type LeadRow = {
 type TaskRow = {
   id: string;
   title: string;
+  type?: string | null;
   due_date: string | null;
   status: string;
 };
@@ -66,7 +68,7 @@ function leadScore(lead: LeadRow, today: string) {
   if (value >= 2000) score += 24;
   else if (value >= 1000) score += 18;
   else if (value >= 300) score += 10;
-  if (["Відповів", "КП відправлено", "Дзвінок заплановано", "Думає"].includes(lead.status)) score += 24;
+  if (["Відповів", "КП відправлено", "Дзвінок", "Дзвінок заплановано", "Думає"].includes(lead.status)) score += 24;
   if (lead.follow_up_date && lead.follow_up_date < today) score += 18;
   if (lead.follow_up_date === today) score += 14;
   if (lead.status === "Програно") score -= 30;
@@ -80,6 +82,7 @@ function leadAction(lead: LeadRow, today: string) {
   if (lead.status === "Написав") return lead.follow_up_date && lead.follow_up_date <= today ? "Зробити follow-up" : "Дочекатися follow-up";
   if (lead.status === "Відповів") return "Скинути деталі пакета";
   if (lead.status === "КП відправлено") return "Follow-up після КП";
+  if (lead.status === "Дзвінок" || lead.status === "Дзвінок заплановано") return "Підготуватися до дзвінка";
   if (lead.status === "Думає") return "Уточнити сумнів і дедлайн";
   return "Відкрити CRM і визначити наступний крок";
 }
@@ -123,8 +126,9 @@ async function sendTelegram(chatId: number | string, text: string) {
       reply_markup: {
         keyboard: [
           [{ text: "⚡ Що робити зараз" }, { text: "📊 Статус зараз" }],
-          [{ text: "🔥 Кому писати" }, { text: "⏰ Прострочені" }],
-          [{ text: "💶 Pipeline" }, { text: "Відкрити CRM" }]
+          [{ text: "📞 Дзвінки" }, { text: "🔥 Кому писати" }],
+          [{ text: "⏰ Прострочені" }, { text: "💶 Pipeline" }],
+          [{ text: "Відкрити CRM" }]
         ],
         resize_keyboard: true
       }
@@ -142,6 +146,8 @@ function buildStatus(leads: LeadRow[], tasks: TaskRow[], today: string) {
   const overdue = due.filter((lead) => lead.follow_up_date && lead.follow_up_date < today);
   const hot = [...activeLeads].sort((a, b) => leadScore(b, today) - leadScore(a, today)).slice(0, 5);
   const openTasks = tasks.filter((task) => task.status !== "Done");
+  const todayCalls = activeLeads.filter((lead) => (lead.status === "Дзвінок" || lead.status === "Дзвінок заплановано") && lead.follow_up_date === today);
+  const todayCallTasks = tasks.filter((task) => task.type === "call" && task.due_date === today && task.status !== "Done");
   const pipeline = activeLeads.reduce((sum, lead) => sum + (Number(lead.deal_value) || 0), 0);
 
   const lines = [
@@ -151,6 +157,7 @@ function buildStatus(leads: LeadRow[], tasks: TaskRow[], today: string) {
     `🔥 Топ-дій: ${hot.length}`,
     `⏰ Прострочено: ${overdue.length}`,
     `✉️ Follow-up: ${due.length}`,
+    `📞 Дзвінки сьогодні: ${todayCalls.length + todayCallTasks.length}`,
     `✅ Відкритих задач: ${openTasks.length}`,
     `💶 Pipeline: ${money(pipeline)}`,
     "",
@@ -162,6 +169,34 @@ function buildStatus(leads: LeadRow[], tasks: TaskRow[], today: string) {
 
   if (appUrl) {
     lines.push("", `<a href="${appUrl}">Відкрити CRM</a>`);
+  }
+
+  return lines.join("\n");
+}
+
+function buildCalls(leads: LeadRow[], tasks: TaskRow[], today: string) {
+  const leadCalls = leads
+    .filter((lead) => !["Виграно", "Програно"].includes(lead.status) && (lead.status === "Дзвінок" || lead.status === "Дзвінок заплановано"))
+    .sort((a, b) => (a.follow_up_date || "").localeCompare(b.follow_up_date || ""));
+  const callTasks = tasks
+    .filter((task) => task.type === "call" && task.status !== "Done")
+    .sort((a, b) => (a.due_date || "").localeCompare(b.due_date || ""));
+
+  const lines = [
+    "<b>Дзвінки</b>",
+    "",
+    ...(leadCalls.length
+      ? leadCalls.slice(0, 8).map((lead) => `• ${escapeHtml(lead.business_name)} · ${lead.follow_up_date || "без дати"}\n  ${escapeHtml(leadAction(lead, today))}`)
+      : ["Немає лідів зі статусом дзвінка"]),
+    "",
+    "<b>Задачі-дзвінки</b>",
+    ...(callTasks.length
+      ? callTasks.slice(0, 8).map((task) => `• ${escapeHtml(task.title)} · ${task.due_date || "без дати"}`)
+      : ["Немає активних задач-дзвінків"])
+  ];
+
+  if (appUrl) {
+    lines.push("", `<a href="${appUrl}/calendar">Відкрити календар</a>`);
   }
 
   return lines.join("\n");
@@ -218,16 +253,16 @@ export async function POST(request: Request) {
       return Response.json({ ok: true });
     }
 
-    const knownActions = ["/start", "/status", "⚡ Що робити зараз", "📊 Статус зараз", "🔥 Кому писати", "⏰ Прострочені", "💶 Pipeline"];
+    const knownActions = ["/start", "/status", "⚡ Що робити зараз", "📊 Статус зараз", "📞 Дзвінки", "🔥 Кому писати", "⏰ Прострочені", "💶 Pipeline"];
     if (!knownActions.includes(text)) {
-      await sendTelegram(chatId, "Натисни <b>⚡ Що робити зараз</b>, <b>🔥 Кому писати</b>, <b>⏰ Прострочені</b> або напиши /status.");
+      await sendTelegram(chatId, "Натисни <b>⚡ Що робити зараз</b>, <b>📞 Дзвінки</b>, <b>🔥 Кому писати</b> або напиши /status.");
       return Response.json({ ok: true });
     }
 
     const today = dateKey();
     const [leads, tasks] = await Promise.all([
       supabaseGet<LeadRow[]>("leads", "select=id,business_name,status,deal_value,follow_up_date,next_action,updated_at,created_at&order=follow_up_date.asc"),
-      supabaseGet<TaskRow[]>("tasks", "select=id,title,due_date,status&order=due_date.asc")
+      supabaseGet<TaskRow[]>("tasks", "select=id,title,type,due_date,status&order=due_date.asc")
     ]);
 
     const activeLeads = leads.filter((lead) => !["Виграно", "Програно"].includes(lead.status));
@@ -236,6 +271,11 @@ export async function POST(request: Request) {
         .filter((lead) => ["Новий", "Проаналізований", "Відповів", "КП відправлено", "Думає"].includes(lead.status))
         .sort((a, b) => leadScore(b, today) - leadScore(a, today));
       await sendTelegram(chatId, buildLeadList("Кому писати зараз", outreach, today));
+      return Response.json({ ok: true });
+    }
+
+    if (text === "📞 Дзвінки") {
+      await sendTelegram(chatId, buildCalls(leads, tasks, today));
       return Response.json({ ok: true });
     }
 

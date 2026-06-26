@@ -31,6 +31,7 @@ type LeadStatus =
   | "Написав"
   | "Відповів"
   | "КП відправлено"
+  | "Дзвінок"
   | "Дзвінок заплановано"
   | "Думає"
   | "Виграно"
@@ -182,16 +183,21 @@ type SettingRow = { key: string; value: AppSettings };
 
 const statuses: LeadStatus[] = [
   "Новий",
-  "Проаналізований",
   "Написав",
   "Відповів",
   "КП відправлено",
-  "Дзвінок заплановано",
-  "Думає",
+  "Дзвінок",
   "Виграно",
-  "Програно",
-  "Повернутись пізніше"
+  "Програно"
 ];
+
+const visibleLeadStatus = (status: LeadStatus): LeadStatus => {
+  if (status === "Проаналізований") return "Новий";
+  if (status === "Думає") return "Відповів";
+  if (status === "Дзвінок заплановано") return "Дзвінок";
+  if (status === "Повернутись пізніше") return "Написав";
+  return status;
+};
 
 const niches = [
   "Легалізація",
@@ -362,7 +368,7 @@ const getLeadScore = (lead: Lead, today: string) => {
   if (value >= 2000) score += 24;
   else if (value >= 1000) score += 18;
   else if (value >= 300) score += 10;
-  if (["Відповів", "КП відправлено", "Дзвінок заплановано", "Думає"].includes(lead.status)) score += 24;
+  if (["Відповів", "КП відправлено", "Дзвінок", "Дзвінок заплановано", "Думає"].includes(lead.status)) score += 24;
   if (lead.follow_up_date && lead.follow_up_date < today) score += 18;
   if (lead.follow_up_date === today) score += 14;
   if (lead.offer_angle) score += 6;
@@ -383,7 +389,7 @@ const getSuggestedNextAction = (lead: Lead, today: string) => {
   if (lead.status === "Написав") return lead.follow_up_date && lead.follow_up_date <= today ? "Зробити короткий follow-up після першого контакту" : "Дочекатися follow-up дати";
   if (lead.status === "Відповів") return "Скинути деталі пакета і запропонувати короткий дзвінок";
   if (lead.status === "КП відправлено") return "Повернутися з конкретним наступним кроком після КП";
-  if (lead.status === "Дзвінок заплановано") return "Підготувати 3 тези для дзвінка";
+  if (lead.status === "Дзвінок" || lead.status === "Дзвінок заплановано") return "Підготувати дзвінок і перевірити потребу клієнта";
   if (lead.status === "Думає") return "Уточнити головний сумнів і дедлайн рішення";
   if (lead.status === "Програно") return getLossReason(lead) ? "Повернутися пізніше з іншим кутом" : "Зафіксувати причину втрати";
   if (lead.status === "Виграно") return "Підготувати бриф і дату зйомки";
@@ -604,6 +610,7 @@ const statusStyles: Record<LeadStatus, string> = {
   Написав: "bg-violet/15 text-violet-200 border-violet/35",
   Відповів: "bg-mint/15 text-emerald-200 border-mint/30",
   "КП відправлено": "bg-amber/15 text-amber-200 border-amber/30",
+  Дзвінок: "bg-cyan-500/15 text-cyan-200 border-cyan-400/30",
   "Дзвінок заплановано": "bg-cyan-500/15 text-cyan-200 border-cyan-400/30",
   Думає: "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-400/30",
   Виграно: "bg-emerald-500/20 text-emerald-100 border-emerald-400/35",
@@ -1015,10 +1022,10 @@ export default function SalesOs() {
   const selectedLead = leads.find((lead) => lead.id === selectedLeadId) ?? null;
   const stats = {
     total: leads.length,
-    contacted: leads.filter((lead) => ["Написав", "Відповів", "КП відправлено", "Думає", "Виграно"].includes(lead.status)).length,
-    replies: leads.filter((lead) => ["Відповів", "КП відправлено", "Думає", "Виграно"].includes(lead.status)).length,
+    contacted: leads.filter((lead) => ["Написав", "Відповів", "КП відправлено", "Дзвінок", "Дзвінок заплановано", "Думає", "Виграно"].includes(lead.status)).length,
+    replies: leads.filter((lead) => ["Відповів", "КП відправлено", "Дзвінок", "Дзвінок заплановано", "Думає", "Виграно"].includes(lead.status)).length,
     proposals: leads.filter((lead) => lead.status === "КП відправлено").length,
-    calls: leads.filter((lead) => lead.status === "Дзвінок заплановано").length,
+    calls: leads.filter((lead) => lead.status === "Дзвінок" || lead.status === "Дзвінок заплановано").length,
     won: leads.filter((lead) => lead.status === "Виграно").length,
     pipeline: leads.filter((lead) => lead.status !== "Програно" && lead.status !== "Виграно").reduce((sum, lead) => sum + numericValue(lead.deal_value), 0),
     revenue: leads.filter((lead) => lead.status === "Виграно").reduce((sum, lead) => sum + numericValue(lead.deal_value), 0)
@@ -1047,6 +1054,46 @@ export default function SalesOs() {
     return nextPatch;
   }
 
+  function isCallStatus(status: LeadStatus) {
+    return status === "Дзвінок" || status === "Дзвінок заплановано";
+  }
+
+  function upsertCallTaskForLead(lead: Lead) {
+    const dueDate = lead.follow_up_date || today;
+    setTasks((current) => {
+      const existingCallTask = current.find((task) => task.related_lead_id === lead.id && task.type === "call" && task.status !== "Done");
+      if (existingCallTask) {
+        return current.map((task) =>
+          task.id === existingCallTask.id
+            ? {
+                ...task,
+                title: `Дзвінок: ${lead.business_name}`,
+                due_date: dueDate,
+                priority: "High",
+                updated_at: today
+              }
+            : task
+        );
+      }
+
+      return [
+        {
+          id: newId(),
+          title: `Дзвінок: ${lead.business_name}`,
+          description: "Автоматично створено з ліда. Ця задача показується в календарі і Telegram-нагадуванні.",
+          type: "call",
+          related_lead_id: lead.id,
+          due_date: dueDate,
+          status: "To do",
+          priority: "High",
+          created_at: today,
+          updated_at: today
+        },
+        ...current
+      ];
+    });
+  }
+
   function patchLead(leadId: string, patch: Partial<Lead>) {
     const normalizedPatch = normalizeLeadPatch(patch);
     let leadToPersist: Lead | null = null;
@@ -1065,6 +1112,9 @@ export default function SalesOs() {
         setToast("Не вдалося одразу зберегти зміну в Supabase");
       });
     }
+    if (leadToPersist && isCallStatus(leadToPersist.status) && ("follow_up_date" in normalizedPatch || "status" in normalizedPatch)) {
+      upsertCallTaskForLead(leadToPersist);
+    }
   }
 
   function updateLeadStatus(leadId: string, status: LeadStatus) {
@@ -1073,6 +1123,7 @@ export default function SalesOs() {
       Написав: addDays(baseDate, settings.sales.follow_up_delay_contacted),
       Відповів: addDays(baseDate, 1),
       "КП відправлено": addDays(baseDate, settings.sales.follow_up_delay_proposal_sent),
+      Дзвінок: baseDate,
       Думає: addDays(baseDate, settings.sales.follow_up_delay_thinking),
       Програно: addDays(baseDate, settings.sales.return_delay_lost)
     };
@@ -1083,18 +1134,19 @@ export default function SalesOs() {
         if (lead.id !== leadId) {
           return lead;
         }
+        const nextFollowUpDate = status === "Виграно" ? "" : followUpByStatus[status] ?? lead.follow_up_date;
         leadToPersist = {
               ...lead,
               status,
               last_contact_date: baseDate,
-              follow_up_date: status === "Виграно" ? "" : followUpByStatus[status] ?? lead.follow_up_date,
+              follow_up_date: nextFollowUpDate,
               next_action:
                 status === "Виграно"
                   ? "Підготувати зйомку / бриф"
                   : status === "КП відправлено"
                     ? "Зробити follow-up після КП"
-                    : status === "Дзвінок заплановано"
-                      ? "Підготувати дзвінок"
+                    : isCallStatus(status)
+                      ? "Підготувати дзвінок і уточнити потребу"
                       : lead.next_action,
               updated_at: baseDate
             };
@@ -1121,20 +1173,27 @@ export default function SalesOs() {
 
     const taskByStatus: Partial<Record<LeadStatus, Pick<Task, "title" | "type" | "priority">>> = {
       "КП відправлено": { title: "Зробити follow-up після КП", type: "follow_up", priority: "High" },
+      Дзвінок: { title: "Дзвінок з лідом", type: "call", priority: "High" },
       "Дзвінок заплановано": { title: "Підготувати дзвінок", type: "call", priority: "High" },
       Виграно: { title: "Підготувати зйомку / бриф", type: "shoot", priority: "High" }
     };
 
     const nextTask = taskByStatus[status];
-    if (nextTask) {
+    if (leadToPersist && isCallStatus(status)) {
+      upsertCallTaskForLead(leadToPersist);
+      return;
+    }
+
+    if (nextTask && leadToPersist) {
+      const taskDueDate = status === "Виграно" ? addDays(baseDate, 1) : leadToPersist.follow_up_date || baseDate;
       setTasks((current) => [
         {
           id: newId(),
-          title: nextTask.title,
-          description: "Автоматично створено після зміни статусу ліда.",
+          title: status === "Дзвінок" || status === "Дзвінок заплановано" ? `Дзвінок: ${leadToPersist.business_name}` : nextTask.title,
+          description: status === "Дзвінок" || status === "Дзвінок заплановано" ? "Автоматично створено з ліда. Ця задача показується в календарі і Telegram-нагадуванні." : "Автоматично створено після зміни статусу ліда.",
           type: nextTask.type,
           related_lead_id: leadId,
-          due_date: status === "Виграно" ? addDays(baseDate, 1) : baseDate,
+          due_date: taskDueDate,
           status: "To do",
           priority: nextTask.priority,
           created_at: baseDate,
@@ -1429,7 +1488,8 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
 }
 
 function Badge({ status }: { status: LeadStatus }) {
-  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusStyles[status]}`}>{status}</span>;
+  const displayStatus = visibleLeadStatus(status);
+  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusStyles[displayStatus]}`}>{displayStatus}</span>;
 }
 
 function LeadScorePill({ lead, today }: { lead: Lead; today: string }) {
@@ -1473,9 +1533,9 @@ function TodayPage({
   const dueLeads = activeLeads.filter((lead) => lead.follow_up_date && lead.follow_up_date <= today);
   const overdueLeads = dueLeads.filter((lead) => lead.follow_up_date < today);
   const readyForOutreach = activeLeads.filter((lead) => ["Новий", "Проаналізований"].includes(lead.status));
-  const waitingLeads = activeLeads.filter((lead) => ["Написав", "КП відправлено", "Думає"].includes(lead.status));
+  const waitingLeads = activeLeads.filter((lead) => ["Написав", "КП відправлено", "Дзвінок", "Дзвінок заплановано", "Думає"].includes(lead.status));
   const actionQueue = [...activeLeads]
-    .filter((lead) => dueLeads.some((item) => item.id === lead.id) || ["Новий", "Проаналізований", "Відповів", "КП відправлено", "Думає"].includes(lead.status))
+    .filter((lead) => dueLeads.some((item) => item.id === lead.id) || ["Новий", "Проаналізований", "Відповів", "КП відправлено", "Дзвінок", "Дзвінок заплановано", "Думає"].includes(lead.status))
     .sort((a, b) => {
       const dateA = a.follow_up_date || "9999-99-99";
       const dateB = b.follow_up_date || "9999-99-99";
@@ -1649,7 +1709,7 @@ function Dashboard({ today, stats, leads, tasks, packages, dailyTargets, onDaily
   const activeLeads = leads.filter((lead) => !["Виграно", "Програно"].includes(lead.status));
   const rankedLeads = [...activeLeads].sort((a, b) => getLeadScore(b, today) - getLeadScore(a, today));
   const focusQueue = rankedLeads
-    .filter((lead) => dueFollowUps.some((item) => item.id === lead.id) || ["Новий", "Проаналізований", "Відповів", "КП відправлено", "Думає"].includes(lead.status))
+    .filter((lead) => dueFollowUps.some((item) => item.id === lead.id) || ["Новий", "Проаналізований", "Відповів", "КП відправлено", "Дзвінок", "Дзвінок заплановано", "Думає"].includes(lead.status))
     .slice(0, 5);
   const workQueue = [...dueFollowUps, ...freshLeads.filter((lead) => !dueFollowUps.some((item) => item.id === lead.id))]
     .sort((a, b) => getLeadScore(b, today) - getLeadScore(a, today))
@@ -1982,7 +2042,7 @@ function PipelinePage({
   const activePipeline = leads.filter((lead) => lead.status !== "Програно");
   const total = activePipeline.reduce((sum, lead) => sum + numericValue(lead.deal_value), 0);
   const draggingLead = draggingLeadId ? leads.find((lead) => lead.id === draggingLeadId) ?? null : null;
-  const quickPipelineStatuses: LeadStatus[] = ["Написав", "Відповів", "КП відправлено", "Дзвінок заплановано", "Виграно"];
+  const quickPipelineStatuses: LeadStatus[] = ["Написав", "Відповів", "КП відправлено", "Дзвінок", "Виграно"];
 
   function moveLeadToStatus(status: LeadStatus) {
     if (!draggingLead || draggingLead.status === status) {
@@ -2033,7 +2093,7 @@ function PipelinePage({
       <div className="snap-x overflow-x-auto pb-3">
         <div className="grid auto-cols-[82vw] grid-flow-col gap-3 lg:auto-cols-[280px]">
           {statuses.map((status) => {
-            const columnLeads = leads.filter((lead) => lead.status === status);
+            const columnLeads = leads.filter((lead) => visibleLeadStatus(lead.status) === status);
             const columnValue = columnLeads.reduce((sum, lead) => sum + numericValue(lead.deal_value), 0);
             const isDropTarget = Boolean(draggingLead && draggingLead.status !== status);
             return (
@@ -2187,7 +2247,7 @@ function LeadDetail({ lead, history, onBack, onStatus, onEdit, onDelete, onTask 
         <Card>
           <SectionTitle title="Швидкі статуси" />
           <div className="flex flex-wrap gap-2">
-            {(["Написав", "Відповів", "КП відправлено", "Думає", "Виграно", "Програно"] as LeadStatus[]).map((status) => (
+            {(["Написав", "Відповів", "КП відправлено", "Дзвінок", "Виграно", "Програно"] as LeadStatus[]).map((status) => (
               <button key={status} className="rounded-lg border border-line bg-panel2 px-4 py-2 text-sm font-semibold hover:bg-white hover:text-ink" onClick={() => onStatus(lead.id, status)}>
                 {status}
               </button>
@@ -2238,7 +2298,7 @@ function LeadSidePanel({
   onTask: () => void;
   onCopied: () => void;
 }) {
-  const quickStatuses: LeadStatus[] = ["Написав", "Відповів", "КП відправлено", "Дзвінок заплановано", "Думає", "Виграно"];
+  const quickStatuses: LeadStatus[] = ["Написав", "Відповів", "КП відправлено", "Дзвінок", "Виграно", "Програно"];
   const visibleTemplates = templates.slice(0, 5);
   const score = getLeadScore(lead, today);
   const temperature = getLeadTemperature(score);
@@ -2964,11 +3024,11 @@ function TemplatesPage({
 }
 
 function AnalyticsPage({ leads }: { leads: Lead[] }) {
-  const written = leads.filter((lead) => ["Написав", "Відповів", "КП відправлено", "Думає", "Виграно"].includes(lead.status)).length;
-  const replied = leads.filter((lead) => ["Відповів", "КП відправлено", "Думає", "Виграно"].includes(lead.status)).length;
+  const written = leads.filter((lead) => ["Написав", "Відповів", "КП відправлено", "Дзвінок", "Дзвінок заплановано", "Думає", "Виграно"].includes(lead.status)).length;
+  const replied = leads.filter((lead) => ["Відповів", "КП відправлено", "Дзвінок", "Дзвінок заплановано", "Думає", "Виграно"].includes(lead.status)).length;
   const proposals = leads.filter((lead) => lead.status === "КП відправлено").length;
   const won = leads.filter((lead) => lead.status === "Виграно").length;
-  const byStatus = statuses.map((status) => ({ label: status, count: leads.filter((lead) => lead.status === status).length }));
+  const byStatus = statuses.map((status) => ({ label: status, count: leads.filter((lead) => visibleLeadStatus(lead.status) === status).length }));
   const byNiche = niches.map((niche) => ({ label: niche, count: leads.filter((lead) => lead.niche === niche).length })).filter((item) => item.count > 0);
   return (
     <div className="space-y-5">
@@ -3317,11 +3377,12 @@ function tableColumnClass(header: string) {
 }
 
 function Select({ value, onChange, options, label }: { value: string; onChange: (value: string) => void; options: string[]; label?: string }) {
+  const renderedOptions = value && !options.includes(value) ? [value, ...options] : options;
   return (
     <label className="block">
       {label && <span className="mb-1 block text-xs text-slate-400">{label}</span>}
       <select className="field" value={value} onChange={(event) => onChange(event.target.value)}>
-        {options.map((option) => <option key={option}>{option}</option>)}
+        {renderedOptions.map((option) => <option key={option}>{option}</option>)}
       </select>
     </label>
   );
