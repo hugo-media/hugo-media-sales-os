@@ -1096,29 +1096,28 @@ export default function SalesOs() {
 
   function patchLead(leadId: string, patch: Partial<Lead>) {
     const normalizedPatch = normalizeLeadPatch(patch);
-    let leadToPersist: Lead | null = null;
-    setLeads((current) =>
-      current.map((lead) => {
-        if (lead.id !== leadId) {
-          return lead;
-        }
-        leadToPersist = normalizeLeadDates({ ...lead, ...normalizedPatch, updated_at: today });
-        return leadToPersist;
-      })
-    );
-    if (leadToPersist && supabase && dataSource === "supabase") {
-      persistLead(supabase, leadToPersist).catch((error) => {
+    const currentLead = leads.find((lead) => lead.id === leadId);
+    if (!currentLead) return;
+
+    const nextLead = normalizeLeadDates({ ...currentLead, ...normalizedPatch, updated_at: today });
+    setLeads((current) => current.map((lead) => (lead.id === leadId ? nextLead : lead)));
+
+    if (supabase && dataSource === "supabase") {
+      persistLead(supabase, nextLead).catch((error) => {
         console.error("Lead patch failed", error);
         setToast("Не вдалося одразу зберегти зміну в Supabase");
       });
     }
-    if (leadToPersist && isCallStatus(leadToPersist.status) && ("follow_up_date" in normalizedPatch || "status" in normalizedPatch)) {
-      upsertCallTaskForLead(leadToPersist);
+    if (isCallStatus(nextLead.status) && ("follow_up_date" in normalizedPatch || "status" in normalizedPatch)) {
+      upsertCallTaskForLead(nextLead);
     }
   }
 
   function updateLeadStatus(leadId: string, status: LeadStatus) {
     const baseDate = today;
+    const currentLead = leads.find((lead) => lead.id === leadId);
+    if (!currentLead) return;
+
     const followUpByStatus: Partial<Record<LeadStatus, string>> = {
       Написав: addDays(baseDate, settings.sales.follow_up_delay_contacted),
       Відповів: addDays(baseDate, 1),
@@ -1128,32 +1127,26 @@ export default function SalesOs() {
       Програно: addDays(baseDate, settings.sales.return_delay_lost)
     };
 
-    let leadToPersist: Lead | null = null;
-    setLeads((current) =>
-      current.map((lead) => {
-        if (lead.id !== leadId) {
-          return lead;
-        }
-        const nextFollowUpDate = status === "Виграно" ? "" : followUpByStatus[status] ?? lead.follow_up_date;
-        leadToPersist = {
-              ...lead,
-              status,
-              last_contact_date: baseDate,
-              follow_up_date: nextFollowUpDate,
-              next_action:
-                status === "Виграно"
-                  ? "Підготувати зйомку / бриф"
-                  : status === "КП відправлено"
-                    ? "Зробити follow-up після КП"
-                    : isCallStatus(status)
-                      ? "Підготувати дзвінок і уточнити потребу"
-                      : lead.next_action,
-              updated_at: baseDate
-            };
-        return leadToPersist;
-      })
-    );
-    if (leadToPersist && supabase && dataSource === "supabase") {
+    const nextFollowUpDate = status === "Виграно" ? "" : followUpByStatus[status] ?? currentLead.follow_up_date;
+    const leadToPersist = {
+      ...currentLead,
+      status,
+      last_contact_date: baseDate,
+      follow_up_date: nextFollowUpDate,
+      next_action:
+        status === "Виграно"
+          ? "Підготувати зйомку / бриф"
+          : status === "КП відправлено"
+            ? "Зробити follow-up після КП"
+            : isCallStatus(status)
+              ? "Підготувати дзвінок і уточнити потребу"
+              : currentLead.next_action,
+      updated_at: baseDate
+    };
+
+    setLeads((current) => current.map((lead) => (lead.id === leadId ? leadToPersist : lead)));
+
+    if (supabase && dataSource === "supabase") {
       persistLead(supabase, leadToPersist).catch((error) => {
         console.error("Lead status save failed", error);
         setToast("Не вдалося одразу зберегти статус у Supabase");
@@ -1178,15 +1171,14 @@ export default function SalesOs() {
       Виграно: { title: "Підготувати зйомку / бриф", type: "shoot", priority: "High" }
     };
 
-    const persistedLead = leadToPersist;
     const nextTask = taskByStatus[status];
-    if (persistedLead && isCallStatus(status)) {
-      upsertCallTaskForLead(persistedLead);
+    if (isCallStatus(status)) {
+      upsertCallTaskForLead(leadToPersist);
       return;
     }
 
-    if (nextTask && persistedLead) {
-      const taskDueDate = status === "Виграно" ? addDays(baseDate, 1) : persistedLead.follow_up_date || baseDate;
+    if (nextTask) {
+      const taskDueDate = status === "Виграно" ? addDays(baseDate, 1) : leadToPersist.follow_up_date || baseDate;
       setTasks((current) => [
         {
           id: newId(),
