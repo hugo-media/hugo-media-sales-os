@@ -5,18 +5,18 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        ink: "#080A10",
-        panel: "#11141F",
-        panel2: "#171B29",
-        line: "#262B3A",
-        violet: "#8B5CF6",
-        blue: "#38BDF8",
-        mint: "#22C55E",
-        amber: "#F59E0B",
-        rose: "#FB7185"
+        ink: "rgb(var(--color-ink) / <alpha-value>)",
+        panel: "rgb(var(--color-panel) / <alpha-value>)",
+        panel2: "rgb(var(--color-panel-2) / <alpha-value>)",
+        line: "rgb(var(--color-line) / <alpha-value>)",
+        violet: "rgb(var(--color-violet) / <alpha-value>)",
+        blue: "rgb(var(--color-blue) / <alpha-value>)",
+        mint: "rgb(var(--color-mint) / <alpha-value>)",
+        amber: "rgb(var(--color-amber) / <alpha-value>)",
+        rose: "rgb(var(--color-rose) / <alpha-value>)"
       },
       boxShadow: {
-        glow: "0 0 0 1px rgba(139, 92, 246, 0.18), 0 24px 70px rgba(0, 0, 0, 0.36)"
+        glow: "var(--shadow-glow)"
       }
     }
   },

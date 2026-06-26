@@ -3,7 +3,23 @@
 @tailwind utilities;
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
+  --color-ink: 247 242 232;
+  --color-panel: 255 255 255;
+  --color-panel-2: 250 247 240;
+  --color-line: 222 214 201;
+  --color-violet: 109 40 217;
+  --color-blue: 2 132 199;
+  --color-mint: 5 150 105;
+  --color-amber: 217 119 6;
+  --color-rose: 225 29 72;
+  --text-primary: #15130f;
+  --text-muted: #6f675c;
+  --app-bg:
+    radial-gradient(circle at 8% 0%, rgba(180, 139, 74, 0.16), transparent 24rem),
+    radial-gradient(circle at 86% 4%, rgba(14, 116, 144, 0.10), transparent 28rem),
+    linear-gradient(135deg, #f8f4ea 0%, #f2eadc 46%, #fbfaf6 100%);
+  --shadow-glow: 0 1px 0 rgba(255, 255, 255, 0.8), 0 22px 70px rgba(79, 70, 57, 0.14);
 }
 
 * {
@@ -13,10 +29,66 @@
 body {
   min-height: 100vh;
   font-family: var(--font-inter), system-ui, sans-serif;
-  background:
+  background: var(--app-bg);
+  color: var(--text-primary);
+}
+
+.theme-dark {
+  color-scheme: dark;
+  --color-ink: 8 10 16;
+  --color-panel: 17 20 31;
+  --color-panel-2: 23 27 41;
+  --color-line: 38 43 58;
+  --color-violet: 139 92 246;
+  --color-blue: 56 189 248;
+  --color-mint: 34 197 94;
+  --color-amber: 245 158 11;
+  --color-rose: 251 113 133;
+  --text-primary: #f8fafc;
+  --text-muted: #94a3b8;
+  --app-bg:
     radial-gradient(circle at 12% 8%, rgba(56, 189, 248, 0.15), transparent 26rem),
     radial-gradient(circle at 78% 0%, rgba(139, 92, 246, 0.14), transparent 28rem),
     #080a10;
+  --shadow-glow: 0 0 0 1px rgba(139, 92, 246, 0.18), 0 24px 70px rgba(0, 0, 0, 0.36);
+}
+
+.theme-light {
+  color-scheme: light;
+}
+
+.theme-light .text-white,
+.theme-light .text-slate-100,
+.theme-light .text-slate-200,
+.theme-light .text-slate-300 {
+  color: #1f1b16;
+}
+
+.theme-light .text-slate-400,
+.theme-light .text-slate-500 {
+  color: #746a5d;
+}
+
+.theme-light .bg-white {
+  background-color: #15130f;
+}
+
+.theme-light .text-ink {
+  color: #f8f4ea;
+}
+
+.theme-light .hover\:bg-white:hover {
+  background-color: #15130f;
+}
+
+.theme-light .hover\:text-ink:hover {
+  color: #f8f4ea;
+}
+
+.theme-light .bg-ink\/40,
+.theme-light .bg-ink\/50,
+.theme-light .bg-ink\/35 {
+  background-color: rgba(245, 239, 227, 0.78);
 }
 
 button,
@@ -41,7 +113,7 @@ textarea:focus-visible {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #30364a;
+  background: rgb(var(--color-line));
   border-radius: 999px;
 }
 
@@ -49,10 +121,10 @@ textarea:focus-visible {
   min-height: 44px;
   width: 100%;
   border-radius: 8px;
-  border: 1px solid #262b3a;
-  background: #171b29;
+  border: 1px solid rgb(var(--color-line));
+  background: rgb(var(--color-panel-2));
   padding: 0.7rem 0.85rem;
-  color: #f8fafc;
+  color: var(--text-primary);
 }
 
 .field::placeholder {

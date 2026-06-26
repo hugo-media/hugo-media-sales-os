@@ -18,7 +18,9 @@ import {
   Plus,
   Search,
   Settings,
+  Moon,
   Sparkles,
+  Sun,
   Trash2,
   Users,
   X
@@ -37,6 +39,8 @@ type LeadStatus =
   | "Виграно"
   | "Програно"
   | "Повернутись пізніше";
+
+type ThemeMode = "light" | "dark";
 
 type Lead = {
   id: string;
@@ -897,6 +901,7 @@ export default function SalesOs() {
   const [isLeadFormOpen, setIsLeadFormOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [toast, setToast] = useState("");
+  const [theme, setTheme] = useState<ThemeMode>("light");
   const [today, setToday] = useState(getWarsawDateKey);
   const tomorrow = addDays(today, 1);
   const todayLabel = formatUkrainianDate(today);
@@ -998,6 +1003,21 @@ export default function SalesOs() {
     const timer = window.setTimeout(() => setToast(""), 2500);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    const savedTheme = window.localStorage.getItem("hugo-sales-theme");
+    if (savedTheme === "light" || savedTheme === "dark") {
+      setTheme(savedTheme);
+    }
+  }, []);
+
+  function toggleTheme() {
+    setTheme((current) => {
+      const next = current === "light" ? "dark" : "light";
+      window.localStorage.setItem("hugo-sales-theme", next);
+      return next;
+    });
+  }
 
   const filteredLeads = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -1249,7 +1269,7 @@ export default function SalesOs() {
   const pageTitle = nav.find((item) => item.id === active)?.label ?? "Дашборд";
 
   return (
-    <main className="min-h-screen lg:grid lg:grid-cols-[280px_1fr]">
+    <main className={`min-h-screen bg-[var(--app-bg)] text-[var(--text-primary)] transition-colors lg:grid lg:grid-cols-[280px_1fr] ${theme === "light" ? "theme-light" : "theme-dark"}`}>
       <aside className="hidden border-b border-line bg-ink/92 px-4 py-4 lg:sticky lg:top-0 lg:block lg:h-screen lg:border-b-0 lg:border-r lg:px-5">
         <div className="mb-6 flex items-center justify-between gap-3">
           <button className="text-left" onClick={() => navigate("today")}>
@@ -1302,6 +1322,13 @@ export default function SalesOs() {
             {dataSourceNote ? <p className="mt-1 text-xs text-amber-300">{dataSourceNote}</p> : null}
           </div>
           <div className="flex flex-wrap gap-2">
+            <button
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-line bg-panel px-4 font-semibold text-[var(--text-primary)]"
+              onClick={toggleTheme}
+            >
+              {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+              {theme === "light" ? "Ніч" : "День"}
+            </button>
             <button
               className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-white px-4 font-semibold text-ink"
               onClick={() => { setEditingLead(null); setIsLeadFormOpen(true); }}
