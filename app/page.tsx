@@ -2575,7 +2575,22 @@ function CalendarPage({
   onPatchLead: (id: string, patch: Partial<Lead>) => void;
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
 }) {
-  const days = Array.from({ length: 7 }, (_, index) => addDays(today, index));
+  const [monthAnchor, setMonthAnchor] = useState(`${today.slice(0, 7)}-01`);
+  const monthKey = monthAnchor.slice(0, 7);
+  const monthDate = new Date(`${monthAnchor}T12:00:00`);
+  const monthLabel = new Intl.DateTimeFormat("uk-UA", {
+    timeZone: appTimeZone,
+    month: "long",
+    year: "numeric"
+  }).format(monthDate);
+  const firstDayOffset = (monthDate.getDay() + 6) % 7;
+  const daysInMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
+  const monthDates = Array.from({ length: daysInMonth }, (_, index) => `${monthKey}-${String(index + 1).padStart(2, "0")}`);
+  const calendarCells = [
+    ...Array.from({ length: firstDayOffset }, () => ""),
+    ...monthDates
+  ];
+  while (calendarCells.length % 7 !== 0) calendarCells.push("");
   const tomorrow = addDays(today, 1);
   const activeLeads = leads.filter((lead) => lead.status !== "Виграно");
   const openTasks = tasks.filter((task) => !["Done", "Cancelled"].includes(task.status));
@@ -2584,6 +2599,9 @@ function CalendarPage({
   const tomorrowLeads = activeLeads.filter((lead) => lead.follow_up_date === tomorrow);
   const overdueTasks = openTasks.filter((task) => task.due_date < today);
   const todayTasks = openTasks.filter((task) => task.due_date === today);
+  const monthLeads = activeLeads.filter((lead) => lead.follow_up_date?.startsWith(monthKey));
+  const monthTasks = openTasks.filter((task) => task.due_date.startsWith(monthKey));
+  const monthContent = contentItems.filter((item) => item.date.startsWith(monthKey));
   const priorityLeads = [...activeLeads]
     .filter((lead) => lead.follow_up_date && lead.follow_up_date <= today)
     .sort((a, b) => getLeadScore(b, today) - getLeadScore(a, today))
@@ -2596,19 +2614,15 @@ function CalendarPage({
     })
     .slice(0, 4);
 
-  const dayLabel = (day: string) => {
-    if (day === today) return "Сьогодні";
-    if (day === tomorrow) return "Завтра";
-    return new Intl.DateTimeFormat("uk-UA", {
-      timeZone: appTimeZone,
-      weekday: "short",
-      day: "numeric",
-      month: "short"
-    }).format(new Date(`${day}T12:00:00Z`));
-  };
-
   const completeTask = (taskId: string) => {
     setTasks((current) => current.map((task) => (task.id === taskId ? { ...task, status: "Done", updated_at: today } : task)));
+  };
+
+  const shiftMonth = (months: number) => {
+    const next = new Date(`${monthAnchor}T12:00:00`);
+    next.setMonth(next.getMonth() + months);
+    next.setDate(1);
+    setMonthAnchor(next.toISOString().slice(0, 10));
   };
 
   return (
@@ -2630,9 +2644,9 @@ function CalendarPage({
           <div className="mt-1 text-xs text-slate-400">follow-up</div>
         </Card>
         <Card>
-          <div className="text-sm text-slate-400">Тиждень</div>
-          <div className="mt-2 text-3xl font-black">{days.reduce((sum, day) => sum + activeLeads.filter((lead) => lead.follow_up_date === day).length + openTasks.filter((task) => task.due_date === day).length, 0)}</div>
-          <div className="mt-1 text-xs text-slate-400">запланованих дій</div>
+          <div className="text-sm text-slate-400">У місяці</div>
+          <div className="mt-2 text-3xl font-black">{monthLeads.length + monthTasks.length + monthContent.length}</div>
+          <div className="mt-1 text-xs text-slate-400">подій у календарі</div>
         </Card>
       </section>
 
@@ -2683,8 +2697,69 @@ function CalendarPage({
         </div>
       </Card>
 
+      <Card>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <SectionTitle title="Місяць" />
+            <p className="-mt-2 text-sm text-slate-400">Повна сітка місяця: видно всі дати, follow-up, задачі і контент.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button className="min-h-10 rounded-lg border border-line px-3 text-sm font-semibold hover:bg-white hover:text-ink" onClick={() => shiftMonth(-1)}>Назад</button>
+            <button className="min-h-10 rounded-lg bg-white px-4 text-sm font-black capitalize text-ink" onClick={() => setMonthAnchor(`${today.slice(0, 7)}-01`)}>{monthLabel}</button>
+            <button className="min-h-10 rounded-lg border border-line px-3 text-sm font-semibold hover:bg-white hover:text-ink" onClick={() => shiftMonth(1)}>Вперед</button>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto pb-2">
+          <div className="min-w-[1040px]">
+            <div className="grid grid-cols-7 gap-2 pb-2 text-center text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+              {["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Нд"].map((weekday) => <div key={weekday}>{weekday}</div>)}
+            </div>
+            <div className="grid grid-cols-7 gap-2">
+              {calendarCells.map((day, index) => {
+                if (!day) return <div key={`blank-${index}`} className="min-h-36 rounded-lg border border-line/30 bg-panel/20" />;
+                const dayLeads = activeLeads.filter((lead) => lead.follow_up_date === day).sort((a, b) => getLeadScore(b, today) - getLeadScore(a, today));
+                const dayTasks = openTasks.filter((task) => task.due_date === day);
+                const dayContent = contentItems.filter((item) => item.date === day);
+                const dayCount = dayLeads.length + dayTasks.length + dayContent.length;
+                const isToday = day === today;
+                return (
+                  <div key={day} className={`min-h-36 rounded-lg border p-2 ${isToday ? "border-amber/60 bg-amber/10" : "border-line bg-panel2/70"}`}>
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className={`flex h-8 w-8 items-center justify-center rounded-lg text-sm font-black ${isToday ? "bg-white text-ink" : "bg-ink/50 text-slate-200"}`}>
+                        {Number(day.slice(-2))}
+                      </div>
+                      {dayCount ? <span className="rounded-full border border-blue/40 px-2 py-1 text-xs font-semibold text-sky-100">{dayCount}</span> : null}
+                    </div>
+                    <div className="space-y-1.5">
+                      {dayLeads.slice(0, 3).map((lead) => (
+                        <button key={lead.id} className="block w-full rounded-md border border-line bg-ink/40 px-2 py-1.5 text-left text-xs hover:bg-white hover:text-ink" onClick={() => onOpenLead(lead.id)}>
+                          <span className="line-clamp-1 font-semibold text-blue">{lead.business_name}</span>
+                        </button>
+                      ))}
+                      {dayTasks.slice(0, 2).map((task) => (
+                        <div key={task.id} className="flex items-center justify-between gap-1 rounded-md border border-line bg-ink/40 px-2 py-1.5 text-xs">
+                          <span className="line-clamp-1">{task.title}</span>
+                          <button className="shrink-0 rounded border border-line px-1.5 font-semibold hover:bg-white hover:text-ink" onClick={() => completeTask(task.id)}>OK</button>
+                        </div>
+                      ))}
+                      {dayContent.slice(0, 2).map((item) => (
+                        <div key={item.id} className="rounded-md border border-violet/30 bg-violet/15 px-2 py-1.5 text-xs text-violet-100">
+                          <div className="line-clamp-1 font-semibold">{item.topic}</div>
+                        </div>
+                      ))}
+                      {dayCount > 7 ? <div className="text-xs font-semibold text-slate-400">+{dayCount - 7} ще</div> : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </Card>
+
       <div className="grid gap-3 xl:grid-cols-7">
-        {days.map((day) => {
+        {Array.from({ length: 7 }, (_, index) => addDays(today, index)).map((day) => {
           const dayLeads = activeLeads.filter((lead) => lead.follow_up_date === day).sort((a, b) => getLeadScore(b, today) - getLeadScore(a, today));
           const dayTasks = openTasks.filter((task) => task.due_date === day);
           const dayContent = contentItems.filter((item) => item.date === day);
@@ -2694,7 +2769,7 @@ function CalendarPage({
             <Card key={day} className={`min-h-64 ${isToday ? "border-amber/50 bg-amber/10" : ""}`}>
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <div className="text-lg font-black">{dayLabel(day)}</div>
+                  <div className="text-lg font-black">{day === today ? "Сьогодні" : day === tomorrow ? "Завтра" : formatUkrainianDate(day)}</div>
                   <div className="mt-1 text-xs text-slate-500">{formatUkrainianDate(day)}</div>
                 </div>
                 <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${dayCount ? "border-blue/40 text-sky-100" : "border-line text-slate-500"}`}>{dayCount}</span>
