@@ -1324,7 +1324,15 @@ export default function SalesOs() {
         ) : active === "followups" ? (
           <FollowupsPage today={today} leads={leads} onPatch={patchLead} setTasks={setTasks} onDone={(id) => { updateLeadStatus(id, "Проаналізований"); patchLead(id, { follow_up_date: "", next_action: "" }); }} onOpen={setSelectedLeadId} />
         ) : active === "calendar" ? (
-          <CalendarPage today={today} leads={leads} tasks={tasks} contentItems={contentItems} />
+          <CalendarPage
+            today={today}
+            leads={leads}
+            tasks={tasks}
+            contentItems={contentItems}
+            onOpenLead={setSelectedLeadId}
+            onPatchLead={patchLead}
+            setTasks={setTasks}
+          />
         ) : active === "content" ? (
           <ContentPage today={today} items={contentItems} leads={leads} setItems={setContentItems} />
         ) : active === "scripts" ? (
@@ -2550,27 +2558,178 @@ function FollowupsPage({
   );
 }
 
-function CalendarPage({ today, leads, tasks, contentItems }: { today: string; leads: Lead[]; tasks: Task[]; contentItems: ContentItem[] }) {
+function CalendarPage({
+  today,
+  leads,
+  tasks,
+  contentItems,
+  onOpenLead,
+  onPatchLead,
+  setTasks
+}: {
+  today: string;
+  leads: Lead[];
+  tasks: Task[];
+  contentItems: ContentItem[];
+  onOpenLead: (id: string) => void;
+  onPatchLead: (id: string, patch: Partial<Lead>) => void;
+  setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
+}) {
   const days = Array.from({ length: 7 }, (_, index) => addDays(today, index));
+  const tomorrow = addDays(today, 1);
+  const activeLeads = leads.filter((lead) => lead.status !== "Виграно");
+  const openTasks = tasks.filter((task) => !["Done", "Cancelled"].includes(task.status));
+  const overdueLeads = activeLeads.filter((lead) => lead.follow_up_date && lead.follow_up_date < today);
+  const todayLeads = activeLeads.filter((lead) => lead.follow_up_date === today);
+  const tomorrowLeads = activeLeads.filter((lead) => lead.follow_up_date === tomorrow);
+  const overdueTasks = openTasks.filter((task) => task.due_date < today);
+  const todayTasks = openTasks.filter((task) => task.due_date === today);
+  const priorityLeads = [...activeLeads]
+    .filter((lead) => lead.follow_up_date && lead.follow_up_date <= today)
+    .sort((a, b) => getLeadScore(b, today) - getLeadScore(a, today))
+    .slice(0, 5);
+  const priorityTasks = [...openTasks]
+    .filter((task) => task.due_date <= today)
+    .sort((a, b) => {
+      const priorityOrder: Record<Task["priority"], number> = { High: 3, Medium: 2, Low: 1 };
+      return priorityOrder[b.priority] - priorityOrder[a.priority];
+    })
+    .slice(0, 4);
+
+  const dayLabel = (day: string) => {
+    if (day === today) return "Сьогодні";
+    if (day === tomorrow) return "Завтра";
+    return new Intl.DateTimeFormat("uk-UA", {
+      timeZone: appTimeZone,
+      weekday: "short",
+      day: "numeric",
+      month: "short"
+    }).format(new Date(`${day}T12:00:00Z`));
+  };
+
+  const completeTask = (taskId: string) => {
+    setTasks((current) => current.map((task) => (task.id === taskId ? { ...task, status: "Done", updated_at: today } : task)));
+  };
+
   return (
-    <div className="grid gap-4 lg:grid-cols-7">
-      {days.map((day) => {
-        const dayLeads = leads.filter((lead) => lead.follow_up_date === day);
-        const dayTasks = tasks.filter((task) => task.due_date === day);
-        const dayContent = contentItems.filter((item) => item.date === day);
-        return (
-          <Card key={day} className="min-h-52">
-            <div className="font-black">{day}</div>
-            <div className="mt-3 space-y-2 text-sm">
-              <CalendarLine label="Follow-up" value={dayLeads.length} />
-              <CalendarLine label="Задачі" value={dayTasks.length} />
-              <CalendarLine label="Контент" value={dayContent.length} />
-              {dayLeads.map((lead) => <p key={lead.id} className="rounded-md bg-panel2 p-2 text-slate-200">{lead.business_name}</p>)}
-              {dayContent.map((item) => <p key={item.id} className="rounded-md bg-violet/15 p-2 text-violet-100">{item.topic}</p>)}
-            </div>
-          </Card>
-        );
-      })}
+    <div className="space-y-5">
+      <section className="grid gap-3 md:grid-cols-4">
+        <Card className="border-red-400/30 bg-red-500/10">
+          <div className="text-sm text-red-200">Прострочено</div>
+          <div className="mt-2 text-3xl font-black">{overdueLeads.length + overdueTasks.length}</div>
+          <div className="mt-1 text-xs text-slate-400">follow-up + задачі</div>
+        </Card>
+        <Card className="border-amber/35 bg-amber/10">
+          <div className="text-sm text-amber-100">Сьогодні</div>
+          <div className="mt-2 text-3xl font-black">{todayLeads.length + todayTasks.length}</div>
+          <div className="mt-1 text-xs text-slate-400">дій на зараз</div>
+        </Card>
+        <Card>
+          <div className="text-sm text-slate-400">Завтра</div>
+          <div className="mt-2 text-3xl font-black">{tomorrowLeads.length}</div>
+          <div className="mt-1 text-xs text-slate-400">follow-up</div>
+        </Card>
+        <Card>
+          <div className="text-sm text-slate-400">Тиждень</div>
+          <div className="mt-2 text-3xl font-black">{days.reduce((sum, day) => sum + activeLeads.filter((lead) => lead.follow_up_date === day).length + openTasks.filter((task) => task.due_date === day).length, 0)}</div>
+          <div className="mt-1 text-xs text-slate-400">запланованих дій</div>
+        </Card>
+      </section>
+
+      <Card>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <SectionTitle title="Що зробити першим" />
+            <p className="-mt-2 text-sm text-slate-400">Найважливіше з простроченого і сьогоднішнього. Без пошуку по колонках.</p>
+          </div>
+          <span className="rounded-full border border-line px-3 py-2 text-sm text-slate-300">{formatUkrainianDate(today)}</span>
+        </div>
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Ліди</div>
+            {priorityLeads.length ? priorityLeads.map((lead) => (
+              <div key={lead.id} className="rounded-lg border border-line bg-panel2 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <button className="min-w-0 text-left" onClick={() => onOpenLead(lead.id)}>
+                    <div className="font-black text-blue">{lead.business_name}</div>
+                    <div className="mt-1 text-xs text-slate-400">{lead.follow_up_date < today ? "прострочено" : "сьогодні"} · {getSuggestedNextAction(lead, today)}</div>
+                  </button>
+                  <LeadScorePill lead={lead} today={today} />
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button className="min-h-9 rounded-lg bg-white px-3 text-xs font-semibold text-ink" onClick={() => onOpenLead(lead.id)}>Відкрити</button>
+                  <button className="min-h-9 rounded-lg border border-line px-3 text-xs font-semibold" onClick={() => onPatchLead(lead.id, { follow_up_date: addDays(today, 1) })}>Завтра</button>
+                  <button className="min-h-9 rounded-lg border border-line px-3 text-xs font-semibold" onClick={() => onPatchLead(lead.id, { follow_up_date: addDays(today, 3) })}>+3 дні</button>
+                </div>
+              </div>
+            )) : (
+              <div className="rounded-lg border border-dashed border-line p-4 text-sm text-slate-500">Немає термінових лідів.</div>
+            )}
+          </div>
+          <div className="space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Задачі</div>
+            {priorityTasks.length ? priorityTasks.map((task) => (
+              <div key={task.id} className="flex items-start justify-between gap-3 rounded-lg border border-line bg-panel2 p-3">
+                <div>
+                  <div className="font-semibold">{task.title}</div>
+                  <div className="mt-1 text-xs text-slate-400">{task.due_date < today ? "прострочено" : "сьогодні"} · {task.priority} · {task.type}</div>
+                </div>
+                <IconButton label="Виконано" onClick={() => completeTask(task.id)}><Check className="h-4 w-4" /></IconButton>
+              </div>
+            )) : (
+              <div className="rounded-lg border border-dashed border-line p-4 text-sm text-slate-500">Немає термінових задач.</div>
+            )}
+          </div>
+        </div>
+      </Card>
+
+      <div className="grid gap-3 xl:grid-cols-7">
+        {days.map((day) => {
+          const dayLeads = activeLeads.filter((lead) => lead.follow_up_date === day).sort((a, b) => getLeadScore(b, today) - getLeadScore(a, today));
+          const dayTasks = openTasks.filter((task) => task.due_date === day);
+          const dayContent = contentItems.filter((item) => item.date === day);
+          const dayCount = dayLeads.length + dayTasks.length + dayContent.length;
+          const isToday = day === today;
+          return (
+            <Card key={day} className={`min-h-64 ${isToday ? "border-amber/50 bg-amber/10" : ""}`}>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="text-lg font-black">{dayLabel(day)}</div>
+                  <div className="mt-1 text-xs text-slate-500">{formatUkrainianDate(day)}</div>
+                </div>
+                <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${dayCount ? "border-blue/40 text-sky-100" : "border-line text-slate-500"}`}>{dayCount}</span>
+              </div>
+              <div className="mt-4 space-y-2 text-sm">
+                <CalendarLine label="Follow-up" value={dayLeads.length} />
+                <CalendarLine label="Задачі" value={dayTasks.length} />
+                <CalendarLine label="Контент" value={dayContent.length} />
+                {dayLeads.map((lead) => (
+                  <button key={lead.id} className="block w-full rounded-md border border-line bg-panel2 p-2 text-left hover:bg-white hover:text-ink" onClick={() => onOpenLead(lead.id)}>
+                    <div className="line-clamp-1 font-semibold text-blue">{lead.business_name}</div>
+                    <div className="mt-1 line-clamp-1 text-xs text-slate-400">{getSuggestedNextAction(lead, today)}</div>
+                  </button>
+                ))}
+                {dayTasks.map((task) => (
+                  <div key={task.id} className="flex items-center justify-between gap-2 rounded-md border border-line bg-panel2 p-2">
+                    <div className="min-w-0">
+                      <div className="line-clamp-1 font-semibold">{task.title}</div>
+                      <div className="mt-1 text-xs text-slate-400">{task.priority} · {task.type}</div>
+                    </div>
+                    <button className="shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold hover:bg-white hover:text-ink" onClick={() => completeTask(task.id)}>Done</button>
+                  </div>
+                ))}
+                {dayContent.map((item) => (
+                  <div key={item.id} className="rounded-md border border-violet/30 bg-violet/15 p-2 text-violet-100">
+                    <div className="line-clamp-1 font-semibold">{item.topic}</div>
+                    <div className="mt-1 text-xs text-violet-200/80">{item.platform} · {item.status}</div>
+                  </div>
+                ))}
+                {!dayCount ? <div className="rounded-lg border border-dashed border-line p-4 text-center text-sm text-slate-500">Вільно</div> : null}
+              </div>
+            </Card>
+          );
+        })}
+      </div>
     </div>
   );
 }
