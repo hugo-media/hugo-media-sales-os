@@ -1178,19 +1178,20 @@ export default function SalesOs() {
       Виграно: { title: "Підготувати зйомку / бриф", type: "shoot", priority: "High" }
     };
 
+    const persistedLead = leadToPersist;
     const nextTask = taskByStatus[status];
-    if (leadToPersist && isCallStatus(status)) {
-      upsertCallTaskForLead(leadToPersist);
+    if (persistedLead && isCallStatus(status)) {
+      upsertCallTaskForLead(persistedLead);
       return;
     }
 
-    if (nextTask && leadToPersist) {
-      const taskDueDate = status === "Виграно" ? addDays(baseDate, 1) : leadToPersist.follow_up_date || baseDate;
+    if (nextTask && persistedLead) {
+      const taskDueDate = status === "Виграно" ? addDays(baseDate, 1) : persistedLead.follow_up_date || baseDate;
       setTasks((current) => [
         {
           id: newId(),
-          title: status === "Дзвінок" || status === "Дзвінок заплановано" ? `Дзвінок: ${leadToPersist.business_name}` : nextTask.title,
-          description: status === "Дзвінок" || status === "Дзвінок заплановано" ? "Автоматично створено з ліда. Ця задача показується в календарі і Telegram-нагадуванні." : "Автоматично створено після зміни статусу ліда.",
+          title: nextTask.title,
+          description: "Автоматично створено після зміни статусу ліда.",
           type: nextTask.type,
           related_lead_id: leadId,
           due_date: taskDueDate,
