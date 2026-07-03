@@ -1430,6 +1430,7 @@ export default function SalesOs() {
             onOpenLead={setSelectedLeadId}
             onPatchLead={patchLead}
             setTasks={setTasks}
+            setContentItems={setContentItems}
           />
         ) : active === "content" ? (
           <ContentPage today={today} items={contentItems} leads={leads} setItems={setContentItems} />
@@ -2666,7 +2667,8 @@ function CalendarPage({
   contentItems,
   onOpenLead,
   onPatchLead,
-  setTasks
+  setTasks,
+  setContentItems
 }: {
   today: string;
   leads: Lead[];
@@ -2675,6 +2677,7 @@ function CalendarPage({
   onOpenLead: (id: string) => void;
   onPatchLead: (id: string, patch: Partial<Lead>) => void;
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
+  setContentItems: React.Dispatch<React.SetStateAction<ContentItem[]>>;
 }) {
   const [monthAnchor, setMonthAnchor] = useState(`${today.slice(0, 7)}-01`);
   const monthKey = monthAnchor.slice(0, 7);
@@ -2717,6 +2720,53 @@ function CalendarPage({
 
   const completeTask = (taskId: string) => {
     setTasks((current) => current.map((task) => (task.id === taskId ? { ...task, status: "Done", updated_at: today } : task)));
+  };
+
+  const patchTask = (taskId: string, patch: Partial<Task>) => {
+    setTasks((current) => current.map((task) => (task.id === taskId ? { ...task, ...patch, updated_at: today } : task)));
+  };
+
+  const deleteTask = (taskId: string) => {
+    setTasks((current) => current.filter((task) => task.id !== taskId));
+  };
+
+  const patchContent = (itemId: string, patch: Partial<ContentItem>) => {
+    setContentItems((current) => current.map((item) => (item.id === itemId ? { ...item, ...patch } : item)));
+  };
+
+  const deleteContent = (itemId: string) => {
+    setContentItems((current) => current.filter((item) => item.id !== itemId));
+  };
+
+  const addContentForDay = (day: string) => {
+    setContentItems((current) => [
+      {
+        id: newId(),
+        date: day,
+        topic: "Нова тема",
+        hook: "",
+        key_points: "",
+        CTA: "",
+        target_niche: "Усі ніші",
+        status: "Ідея",
+        platform: "Instagram",
+        notes: ""
+      },
+      ...current
+    ]);
+  };
+
+  const addTaskForDay = (day: string) => {
+    setTasks((current) => [
+      newTask(today, {
+        title: "Нова задача",
+        description: "",
+        type: "follow_up",
+        due_date: day,
+        priority: "Medium"
+      }),
+      ...current
+    ]);
   };
 
   const shiftMonth = (months: number) => {
@@ -2776,6 +2826,10 @@ function CalendarPage({
                   <button className="min-h-9 rounded-lg border border-line px-3 text-xs font-semibold" onClick={() => onPatchLead(lead.id, { follow_up_date: addDays(today, 1) })}>Завтра</button>
                   <button className="min-h-9 rounded-lg border border-line px-3 text-xs font-semibold" onClick={() => onPatchLead(lead.id, { follow_up_date: addDays(today, 3) })}>+3 дні</button>
                 </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-[150px_1fr]">
+                  <Input label="Дата" type="date" value={lead.follow_up_date} onChange={(value) => onPatchLead(lead.id, { follow_up_date: value })} />
+                  <Input label="Next action" value={lead.next_action || getSuggestedNextAction(lead, today)} onChange={(value) => onPatchLead(lead.id, { next_action: value })} />
+                </div>
               </div>
             )) : (
               <div className="rounded-lg border border-dashed border-line p-4 text-sm text-slate-500">Немає термінових лідів.</div>
@@ -2784,12 +2838,19 @@ function CalendarPage({
           <div className="space-y-2">
             <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Задачі</div>
             {priorityTasks.length ? priorityTasks.map((task) => (
-              <div key={task.id} className="flex items-start justify-between gap-3 rounded-lg border border-line bg-panel2 p-3">
-                <div>
-                  <div className="font-semibold">{task.title}</div>
-                  <div className="mt-1 text-xs text-slate-400">{task.due_date < today ? "прострочено" : "сьогодні"} · {task.priority} · {task.type}</div>
+              <div key={task.id} className="rounded-lg border border-line bg-panel2 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="font-semibold">{task.title}</div>
+                    <div className="mt-1 text-xs text-slate-400">{task.due_date < today ? "прострочено" : "сьогодні"} · {task.priority} · {task.type}</div>
+                  </div>
+                  <IconButton label="Виконано" onClick={() => completeTask(task.id)}><Check className="h-4 w-4" /></IconButton>
                 </div>
-                <IconButton label="Виконано" onClick={() => completeTask(task.id)}><Check className="h-4 w-4" /></IconButton>
+                <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_140px_140px]">
+                  <Input label="Назва" value={task.title} onChange={(value) => patchTask(task.id, { title: value })} />
+                  <Input label="Дата" type="date" value={task.due_date} onChange={(value) => patchTask(task.id, { due_date: value })} />
+                  <Select label="Статус" value={task.status} onChange={(status) => patchTask(task.id, { status: status as Task["status"] })} options={["To do", "In progress", "Done", "Cancelled"]} />
+                </div>
               </div>
             )) : (
               <div className="rounded-lg border border-dashed border-line p-4 text-sm text-slate-500">Немає термінових задач.</div>
@@ -2830,23 +2891,36 @@ function CalendarPage({
                       <div className={`flex h-8 w-8 items-center justify-center rounded-lg text-sm font-black ${isToday ? "bg-white text-ink" : "bg-ink/50 text-slate-200"}`}>
                         {Number(day.slice(-2))}
                       </div>
-                      {dayCount ? <span className="rounded-full border border-blue/40 px-2 py-1 text-xs font-semibold text-sky-100">{dayCount}</span> : null}
+                      <div className="flex items-center gap-1">
+                        {dayCount ? <span className="rounded-full border border-blue/40 px-2 py-1 text-xs font-semibold text-sky-100">{dayCount}</span> : null}
+                        <button className="rounded-md border border-line px-2 py-1 text-xs font-black hover:bg-white hover:text-ink" onClick={() => addTaskForDay(day)}>+</button>
+                        <button className="rounded-md border border-violet/40 px-2 py-1 text-xs font-black text-violet-100 hover:bg-white hover:text-ink" onClick={() => addContentForDay(day)}>C</button>
+                      </div>
                     </div>
                     <div className="space-y-1.5">
                       {dayLeads.slice(0, 3).map((lead) => (
-                        <button key={lead.id} className="block w-full rounded-md border border-line bg-ink/40 px-2 py-1.5 text-left text-xs hover:bg-white hover:text-ink" onClick={() => onOpenLead(lead.id)}>
-                          <span className="line-clamp-1 font-semibold text-blue">{lead.business_name}</span>
-                        </button>
+                        <div key={lead.id} className="rounded-md border border-line bg-ink/40 px-2 py-1.5 text-xs">
+                          <button className="block w-full text-left" onClick={() => onOpenLead(lead.id)}>
+                            <span className="line-clamp-1 font-semibold text-blue">{lead.business_name}</span>
+                          </button>
+                          <div className="mt-1 flex gap-1">
+                            <button className="rounded border border-line px-1.5 hover:bg-white hover:text-ink" onClick={() => onPatchLead(lead.id, { follow_up_date: addDays(day, 1) })}>+1</button>
+                            <button className="rounded border border-line px-1.5 hover:bg-white hover:text-ink" onClick={() => onPatchLead(lead.id, { follow_up_date: "" })}>очистити</button>
+                          </div>
+                        </div>
                       ))}
                       {dayTasks.slice(0, 2).map((task) => (
                         <div key={task.id} className="flex items-center justify-between gap-1 rounded-md border border-line bg-ink/40 px-2 py-1.5 text-xs">
                           <span className="line-clamp-1">{task.title}</span>
-                          <button className="shrink-0 rounded border border-line px-1.5 font-semibold hover:bg-white hover:text-ink" onClick={() => completeTask(task.id)}>OK</button>
+                          <div className="flex shrink-0 gap-1">
+                            <button className="rounded border border-line px-1.5 font-semibold hover:bg-white hover:text-ink" onClick={() => patchTask(task.id, { due_date: addDays(day, 1) })}>+1</button>
+                            <button className="rounded border border-line px-1.5 font-semibold hover:bg-white hover:text-ink" onClick={() => completeTask(task.id)}>OK</button>
+                          </div>
                         </div>
                       ))}
                       {dayContent.slice(0, 2).map((item) => (
                         <div key={item.id} className="rounded-md border border-violet/30 bg-violet/15 px-2 py-1.5 text-xs text-violet-100">
-                          <div className="line-clamp-1 font-semibold">{item.topic}</div>
+                          <Input label="" value={item.topic} onChange={(value) => patchContent(item.id, { topic: value })} />
                         </div>
                       ))}
                       {dayCount > 7 ? <div className="text-xs font-semibold text-slate-400">+{dayCount - 7} ще</div> : null}
@@ -2873,31 +2947,56 @@ function CalendarPage({
                   <div className="text-lg font-black">{day === today ? "Сьогодні" : day === tomorrow ? "Завтра" : formatUkrainianDate(day)}</div>
                   <div className="mt-1 text-xs text-slate-500">{formatUkrainianDate(day)}</div>
                 </div>
-                <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${dayCount ? "border-blue/40 text-sky-100" : "border-line text-slate-500"}`}>{dayCount}</span>
+                <div className="flex items-center gap-2">
+                  <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${dayCount ? "border-blue/40 text-sky-100" : "border-line text-slate-500"}`}>{dayCount}</span>
+                  <button className="rounded-lg border border-line px-3 py-2 text-xs font-black hover:bg-white hover:text-ink" onClick={() => addTaskForDay(day)}>+</button>
+                  <button className="rounded-lg border border-violet/40 px-3 py-2 text-xs font-black text-violet-100 hover:bg-white hover:text-ink" onClick={() => addContentForDay(day)}>Контент</button>
+                </div>
               </div>
               <div className="mt-4 space-y-2 text-sm">
                 <CalendarLine label="Follow-up" value={dayLeads.length} />
                 <CalendarLine label="Задачі" value={dayTasks.length} />
                 <CalendarLine label="Контент" value={dayContent.length} />
                 {dayLeads.map((lead) => (
-                  <button key={lead.id} className="block w-full rounded-md border border-line bg-panel2 p-2 text-left hover:bg-white hover:text-ink" onClick={() => onOpenLead(lead.id)}>
-                    <div className="line-clamp-1 font-semibold text-blue">{lead.business_name}</div>
-                    <div className="mt-1 line-clamp-1 text-xs text-slate-400">{getSuggestedNextAction(lead, today)}</div>
-                  </button>
+                  <div key={lead.id} className="rounded-md border border-line bg-panel2 p-2">
+                    <button className="block w-full text-left hover:text-blue" onClick={() => onOpenLead(lead.id)}>
+                      <div className="line-clamp-1 font-semibold text-blue">{lead.business_name}</div>
+                    </button>
+                    <Textarea label="" value={lead.next_action || getSuggestedNextAction(lead, today)} onChange={(value) => onPatchLead(lead.id, { next_action: value })} />
+                    <div className="mt-2 grid grid-cols-[1fr_auto] gap-2">
+                      <Input label="" type="date" value={lead.follow_up_date} onChange={(value) => onPatchLead(lead.id, { follow_up_date: value })} />
+                      <button className="rounded-md border border-line px-2 text-xs font-semibold hover:bg-white hover:text-ink" onClick={() => onPatchLead(lead.id, { follow_up_date: "" })}>Очистити</button>
+                    </div>
+                  </div>
                 ))}
                 {dayTasks.map((task) => (
-                  <div key={task.id} className="flex items-center justify-between gap-2 rounded-md border border-line bg-panel2 p-2">
-                    <div className="min-w-0">
-                      <div className="line-clamp-1 font-semibold">{task.title}</div>
-                      <div className="mt-1 text-xs text-slate-400">{task.priority} · {task.type}</div>
+                  <div key={task.id} className="rounded-md border border-line bg-panel2 p-2">
+                    <div className="grid gap-2">
+                      <Input label="" value={task.title} onChange={(value) => patchTask(task.id, { title: value })} />
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input label="" type="date" value={task.due_date} onChange={(value) => patchTask(task.id, { due_date: value })} />
+                        <Select value={task.status} onChange={(status) => patchTask(task.id, { status: status as Task["status"] })} options={["To do", "In progress", "Done", "Cancelled"]} />
+                      </div>
+                      <div className="flex gap-2">
+                        <button className="min-h-9 flex-1 rounded-md border border-line px-2 text-xs font-semibold hover:bg-white hover:text-ink" onClick={() => completeTask(task.id)}>Done</button>
+                        <button className="min-h-9 rounded-md border border-red-400/40 px-2 text-xs font-semibold text-red-200 hover:bg-white hover:text-ink" onClick={() => deleteTask(task.id)}>Видалити</button>
+                      </div>
                     </div>
-                    <button className="shrink-0 rounded-md border border-line px-2 py-1 text-xs font-semibold hover:bg-white hover:text-ink" onClick={() => completeTask(task.id)}>Done</button>
                   </div>
                 ))}
                 {dayContent.map((item) => (
                   <div key={item.id} className="rounded-md border border-violet/30 bg-violet/15 p-2 text-violet-100">
-                    <div className="line-clamp-1 font-semibold">{item.topic}</div>
-                    <div className="mt-1 text-xs text-violet-200/80">{item.platform} · {item.status}</div>
+                    <div className="grid gap-2">
+                      <Input label="" value={item.topic} onChange={(value) => patchContent(item.id, { topic: value })} />
+                      <div className="grid grid-cols-2 gap-2">
+                        <Input label="" type="date" value={item.date} onChange={(value) => patchContent(item.id, { date: value })} />
+                        <Select value={item.status} onChange={(status) => patchContent(item.id, { status: status as ContentItem["status"] })} options={["Ідея", "Заплановано", "Записано", "Змонтовано", "Опубліковано", "Архів"]} />
+                      </div>
+                      <div className="grid grid-cols-[1fr_auto] gap-2">
+                        <Select value={item.platform} onChange={(value) => patchContent(item.id, { platform: value as ContentItem["platform"] })} options={["TikTok", "Instagram", "Facebook", "YouTube Shorts", "Telegram"]} />
+                        <button className="min-h-9 rounded-md border border-red-400/40 px-2 text-xs font-semibold text-red-200 hover:bg-white hover:text-ink" onClick={() => deleteContent(item.id)}>Видалити</button>
+                      </div>
+                    </div>
                   </div>
                 ))}
                 {!dayCount ? <div className="rounded-lg border border-dashed border-line p-4 text-center text-sm text-slate-500">Вільно</div> : null}
