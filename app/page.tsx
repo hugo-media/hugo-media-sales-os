@@ -402,7 +402,7 @@ const getLeadTemperature = (score: number) => {
 const getSuggestedNextAction = (lead: Lead, today: string) => {
   if (lead.status === "Новий" || lead.status === "Проаналізований") return "Написати перше персоналізоване повідомлення";
   if (lead.status === "Контакт" || lead.status === "Написав" || lead.status === "Відповів") return lead.follow_up_date && lead.follow_up_date <= today ? "Зробити короткий follow-up після контакту" : "Дочекатися follow-up дати";
-  if (lead.status === "Без відповіді") return lead.follow_up_date && lead.follow_up_date <= today ? "Написати короткий повторний follow-up" : "Дочекатися дати повторного контакту";
+  if (lead.status === "Без відповіді") return lead.follow_up_date && lead.follow_up_date <= today ? "Минув тиждень без відповіді: закрити ліда або зробити останній follow-up" : "Чекати тиждень після останнього контакту";
   if (lead.status === "КП" || lead.status === "КП відправлено") return "Повернутися з конкретним наступним кроком після КП";
   if (lead.status === "Дзвінок" || lead.status === "Дзвінок заплановано") return "Підготувати дзвінок і перевірити потребу клієнта";
   if (lead.status === "На паузі" || lead.status === "Думає" || lead.status === "Повернутись пізніше") return "Уточнити головний сумнів і дедлайн рішення";
@@ -1171,7 +1171,7 @@ export default function SalesOs() {
 
     const followUpByStatus: Partial<Record<LeadStatus, string>> = {
       Контакт: addDays(baseDate, settings.sales.follow_up_delay_contacted),
-      "Без відповіді": addDays(baseDate, settings.sales.follow_up_delay_contacted),
+      "Без відповіді": addDays(baseDate, 7),
       Написав: addDays(baseDate, settings.sales.follow_up_delay_contacted),
       "На паузі": addDays(baseDate, settings.sales.follow_up_delay_thinking),
       Відповів: addDays(baseDate, 1),
@@ -1195,7 +1195,7 @@ export default function SalesOs() {
           : status === "КП" || status === "КП відправлено"
             ? "Зробити follow-up після КП"
             : status === "Без відповіді"
-              ? "Написати повторний follow-up"
+              ? "Через 7 днів перевірити: якщо не відповідає, закрити ліда"
               : status === "На паузі"
               ? "Повернутися у домовлений день"
             : isCallStatus(status)

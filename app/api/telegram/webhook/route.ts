@@ -95,7 +95,7 @@ function leadAction(lead: LeadRow, today: string) {
   if (lead.next_action?.trim()) return lead.next_action.trim();
   if (lead.status === "Новий" || lead.status === "Проаналізований") return "Написати перше повідомлення";
   if (visibleLeadStatus(lead.status) === "Контакт") return lead.follow_up_date && lead.follow_up_date <= today ? "Зробити follow-up" : "Дочекатися follow-up";
-  if (visibleLeadStatus(lead.status) === "Без відповіді") return lead.follow_up_date && lead.follow_up_date <= today ? "Повторити контакт" : "Дочекатися повторного контакту";
+  if (visibleLeadStatus(lead.status) === "Без відповіді") return lead.follow_up_date && lead.follow_up_date <= today ? "Минув тиждень без відповіді: закрити ліда або зробити останній follow-up" : "Чекати тиждень після останнього контакту";
   if (visibleLeadStatus(lead.status) === "КП") return "Follow-up після КП";
   if (visibleLeadStatus(lead.status) === "Дзвінок") return "Підготуватися до дзвінка";
   if (visibleLeadStatus(lead.status) === "На паузі") return "Повернутися у домовлений день";
@@ -163,6 +163,7 @@ function buildStatus(leads: LeadRow[], tasks: TaskRow[], today: string) {
   const openTasks = tasks.filter((task) => task.status !== "Done");
   const todayCalls = activeLeads.filter((lead) => visibleLeadStatus(lead.status) === "Дзвінок" && lead.follow_up_date === today);
   const todayCallTasks = tasks.filter((task) => task.type === "call" && task.due_date === today && task.status !== "Done");
+  const noResponseToClose = activeLeads.filter((lead) => visibleLeadStatus(lead.status) === "Без відповіді" && lead.follow_up_date && lead.follow_up_date <= today);
   const pipeline = activeLeads.reduce((sum, lead) => sum + (Number(lead.deal_value) || 0), 0);
 
   const lines = [
@@ -172,6 +173,7 @@ function buildStatus(leads: LeadRow[], tasks: TaskRow[], today: string) {
     `🔥 Топ-дій: ${hot.length}`,
     `⏰ Прострочено: ${overdue.length}`,
     `✉️ Follow-up: ${due.length}`,
+    `🔒 Без відповіді 7+ днів: ${noResponseToClose.length}`,
     `📞 Дзвінки сьогодні: ${todayCalls.length + todayCallTasks.length}`,
     `✅ Відкритих задач: ${openTasks.length}`,
     `💶 Pipeline: ${money(pipeline)}`,
@@ -181,6 +183,14 @@ function buildStatus(leads: LeadRow[], tasks: TaskRow[], today: string) {
       ? hot.map((lead, index) => `${index + 1}. ${escapeHtml(lead.business_name)} · ${leadScore(lead, today)}/100\n   ${escapeHtml(leadAction(lead, today))}`)
       : ["Немає активних лідів"])
   ];
+
+  if (noResponseToClose.length) {
+    lines.push(
+      "",
+      "<b>Кандидати на закриття</b>",
+      ...noResponseToClose.slice(0, 6).map((lead) => `• ${escapeHtml(lead.business_name)} — не відповідає 7+ днів`)
+    );
+  }
 
   if (appUrl) {
     lines.push("", `<a href="${appUrl}">Відкрити CRM</a>`);
