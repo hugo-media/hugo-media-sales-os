@@ -3,6 +3,7 @@ type LeadStatus =
   | "Проаналізований"
   | "Написав"
   | "Контакт"
+  | "Без відповіді"
   | "Відповів"
   | "КП"
   | "КП відправлено"
@@ -80,7 +81,7 @@ function leadScore(lead: LeadRow, today: string) {
   if (value >= 2000) score += 24;
   else if (value >= 1000) score += 18;
   else if (value >= 300) score += 10;
-  if (["Контакт", "Дзвінок", "КП", "На паузі"].includes(visibleLeadStatus(lead.status))) score += 24;
+  if (["Контакт", "Без відповіді", "Дзвінок", "КП", "На паузі"].includes(visibleLeadStatus(lead.status))) score += 24;
   if (lead.follow_up_date && lead.follow_up_date < today) score += 18;
   if (lead.follow_up_date === today) score += 14;
   if (lead.status === "Програно") score -= 30;
@@ -92,6 +93,7 @@ function leadAction(lead: LeadRow, today: string) {
   if (lead.next_action?.trim()) return lead.next_action.trim();
   if (lead.status === "Новий" || lead.status === "Проаналізований") return "Написати перше повідомлення";
   if (visibleLeadStatus(lead.status) === "Контакт") return lead.follow_up_date && lead.follow_up_date <= today ? "Зробити follow-up" : "Дочекатися follow-up";
+  if (visibleLeadStatus(lead.status) === "Без відповіді") return lead.follow_up_date && lead.follow_up_date <= today ? "Повторити контакт" : "Дочекатися повторного контакту";
   if (visibleLeadStatus(lead.status) === "КП") return "Follow-up після КП";
   if (visibleLeadStatus(lead.status) === "Дзвінок") return "Підготуватися до дзвінка";
   if (visibleLeadStatus(lead.status) === "На паузі") return "Повернутися у домовлений день";
@@ -279,7 +281,7 @@ export async function POST(request: Request) {
     const activeLeads = leads.filter((lead) => !["Виграно", "Програно"].includes(lead.status));
     if (text === "🔥 Кому писати") {
       const outreach = activeLeads
-        .filter((lead) => ["Новий", "Контакт", "КП", "На паузі"].includes(visibleLeadStatus(lead.status)))
+        .filter((lead) => ["Новий", "Контакт", "Без відповіді", "КП", "На паузі"].includes(visibleLeadStatus(lead.status)))
         .sort((a, b) => leadScore(b, today) - leadScore(a, today));
       await sendTelegram(chatId, buildLeadList("Кому писати зараз", outreach, today));
       return Response.json({ ok: true });
