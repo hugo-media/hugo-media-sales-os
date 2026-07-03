@@ -2,11 +2,14 @@ type LeadStatus =
   | "Новий"
   | "Проаналізований"
   | "Написав"
+  | "Контакт"
   | "Відповів"
+  | "КП"
   | "КП відправлено"
   | "Дзвінок"
   | "Дзвінок заплановано"
   | "Думає"
+  | "На паузі"
   | "Виграно"
   | "Програно"
   | "Повернутись пізніше";
@@ -58,13 +61,22 @@ function money(value: number | null | undefined) {
   return `${new Intl.NumberFormat("uk-UA").format(Math.max(0, Number(value) || 0))} €`;
 }
 
+function visibleLeadStatus(status: LeadStatus): LeadStatus {
+  if (status === "Проаналізований") return "Новий";
+  if (status === "Написав" || status === "Відповів") return "Контакт";
+  if (status === "КП відправлено") return "КП";
+  if (status === "Дзвінок заплановано") return "Дзвінок";
+  if (status === "Думає" || status === "Повернутись пізніше") return "На паузі";
+  return status;
+}
+
 function leadScore(lead: LeadRow, today: string) {
   let score = 20;
   const value = Number(lead.deal_value) || 0;
   if (value >= 2000) score += 24;
   else if (value >= 1000) score += 18;
   else if (value >= 300) score += 10;
-  if (["Відповів", "КП відправлено", "Дзвінок", "Дзвінок заплановано", "Думає"].includes(lead.status)) score += 24;
+  if (["Контакт", "Дзвінок", "КП", "На паузі"].includes(visibleLeadStatus(lead.status))) score += 24;
   if (lead.follow_up_date && lead.follow_up_date < today) score += 18;
   if (lead.follow_up_date === today) score += 14;
   if (lead.status === "Програно") score -= 30;
@@ -75,11 +87,10 @@ function leadScore(lead: LeadRow, today: string) {
 function leadAction(lead: LeadRow, today: string) {
   if (lead.next_action?.trim()) return lead.next_action.trim();
   if (lead.status === "Новий" || lead.status === "Проаналізований") return "Написати перше повідомлення";
-  if (lead.status === "Написав") return lead.follow_up_date && lead.follow_up_date <= today ? "Зробити follow-up" : "Дочекатися follow-up";
-  if (lead.status === "Відповів") return "Скинути деталі пакета";
-  if (lead.status === "КП відправлено") return "Follow-up після КП";
-  if (lead.status === "Дзвінок" || lead.status === "Дзвінок заплановано") return "Підготуватися до дзвінка";
-  if (lead.status === "Думає") return "Уточнити сумнів і дедлайн";
+  if (visibleLeadStatus(lead.status) === "Контакт") return lead.follow_up_date && lead.follow_up_date <= today ? "Зробити follow-up" : "Дочекатися follow-up";
+  if (visibleLeadStatus(lead.status) === "КП") return "Follow-up після КП";
+  if (visibleLeadStatus(lead.status) === "Дзвінок") return "Підготуватися до дзвінка";
+  if (visibleLeadStatus(lead.status) === "На паузі") return "Повернутися у домовлений день";
   return "Відкрити CRM і визначити наступний крок";
 }
 
@@ -145,7 +156,7 @@ function buildMorningDigest(leads: LeadRow[], tasks: TaskRow[], today: string) {
   const overdue = due.filter((lead) => lead.follow_up_date && lead.follow_up_date < today);
   const hot = [...activeLeads].sort((a, b) => leadScore(b, today) - leadScore(a, today)).slice(0, 5);
   const todayTasks = tasks.filter((task) => task.due_date && task.due_date <= today && task.status !== "Done");
-  const todayCalls = activeLeads.filter((lead) => (lead.status === "Дзвінок" || lead.status === "Дзвінок заплановано") && lead.follow_up_date === today);
+  const todayCalls = activeLeads.filter((lead) => visibleLeadStatus(lead.status) === "Дзвінок" && lead.follow_up_date === today);
   const todayCallTasks = tasks.filter((task) => task.type === "call" && task.due_date === today && task.status !== "Done");
   const pipeline = activeLeads.reduce((sum, lead) => sum + (Number(lead.deal_value) || 0), 0);
 
@@ -183,7 +194,7 @@ function buildMorningDigest(leads: LeadRow[], tasks: TaskRow[], today: string) {
 function buildEveningDigest(leads: LeadRow[], tasks: TaskRow[], today: string) {
   const updatedToday = leads.filter((lead) => lead.updated_at?.startsWith(today));
   const newToday = leads.filter((lead) => lead.created_at?.startsWith(today));
-  const replies = leads.filter((lead) => ["Відповів", "КП відправлено", "Думає", "Виграно"].includes(lead.status));
+  const replies = leads.filter((lead) => ["Контакт", "КП", "На паузі", "Виграно"].includes(visibleLeadStatus(lead.status)));
   const overdueTomorrow = leads.filter((lead) => lead.follow_up_date && lead.follow_up_date <= today && lead.status !== "Виграно");
   const doneTasks = tasks.filter((task) => task.status === "Done" && task.due_date === today);
 
