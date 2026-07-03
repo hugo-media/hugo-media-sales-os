@@ -31,6 +31,7 @@ type TaskRow = {
   id: string;
   title: string;
   type?: string | null;
+  related_lead_id?: string | null;
   due_date: string | null;
   status: string;
 };
@@ -102,6 +103,10 @@ function leadAction(lead: LeadRow, today: string) {
   return "Відкрити CRM і визначити наступний крок";
 }
 
+function isLeadClosed(lead?: Pick<LeadRow, "status"> | null) {
+  return Boolean(lead && ["Закриті", "Виграно"].includes(visibleLeadStatus(lead.status)));
+}
+
 async function supabaseGet<T>(table: string, query: string) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -160,9 +165,9 @@ function buildStatus(leads: LeadRow[], tasks: TaskRow[], today: string) {
   const due = activeLeads.filter((lead) => lead.follow_up_date && lead.follow_up_date <= today);
   const overdue = due.filter((lead) => lead.follow_up_date && lead.follow_up_date < today);
   const hot = [...activeLeads].sort((a, b) => leadScore(b, today) - leadScore(a, today)).slice(0, 5);
-  const openTasks = tasks.filter((task) => task.status !== "Done");
+  const openTasks = tasks.filter((task) => !["Done", "Cancelled"].includes(task.status) && !isLeadClosed(leads.find((lead) => lead.id === task.related_lead_id)));
   const todayCalls = activeLeads.filter((lead) => visibleLeadStatus(lead.status) === "Дзвінок" && lead.follow_up_date === today);
-  const todayCallTasks = tasks.filter((task) => task.type === "call" && task.due_date === today && task.status !== "Done");
+  const todayCallTasks = tasks.filter((task) => task.type === "call" && task.due_date === today && !["Done", "Cancelled"].includes(task.status) && !isLeadClosed(leads.find((lead) => lead.id === task.related_lead_id)));
   const noResponseToClose = activeLeads.filter((lead) => visibleLeadStatus(lead.status) === "Без відповіді" && lead.follow_up_date && lead.follow_up_date <= today);
   const pipeline = activeLeads.reduce((sum, lead) => sum + (Number(lead.deal_value) || 0), 0);
 
@@ -204,7 +209,7 @@ function buildCalls(leads: LeadRow[], tasks: TaskRow[], today: string) {
     .filter((lead) => !["Виграно", "Закриті"].includes(visibleLeadStatus(lead.status)) && visibleLeadStatus(lead.status) === "Дзвінок")
     .sort((a, b) => (a.follow_up_date || "").localeCompare(b.follow_up_date || ""));
   const callTasks = tasks
-    .filter((task) => task.type === "call" && task.status !== "Done")
+    .filter((task) => task.type === "call" && !["Done", "Cancelled"].includes(task.status) && !isLeadClosed(leads.find((lead) => lead.id === task.related_lead_id)))
     .sort((a, b) => (a.due_date || "").localeCompare(b.due_date || ""));
 
   const lines = [
@@ -287,7 +292,7 @@ export async function POST(request: Request) {
     const today = dateKey();
     const [leads, tasks] = await Promise.all([
       supabaseGet<LeadRow[]>("leads", "select=id,business_name,status,deal_value,follow_up_date,next_action,updated_at,created_at&order=follow_up_date.asc"),
-      supabaseGet<TaskRow[]>("tasks", "select=id,title,type,due_date,status&order=due_date.asc")
+      supabaseGet<TaskRow[]>("tasks", "select=id,title,type,related_lead_id,due_date,status&order=due_date.asc")
     ]);
 
     const activeLeads = leads.filter((lead) => !["Виграно", "Закриті"].includes(visibleLeadStatus(lead.status)));

@@ -411,6 +411,8 @@ const getSuggestedNextAction = (lead: Lead, today: string) => {
   return lead.next_action || "Визначити наступну дію";
 };
 
+const isLeadClosed = (lead?: Pick<Lead, "status"> | null) => Boolean(lead && ["Закриті", "Виграно"].includes(visibleLeadStatus(lead.status)));
+
 const buildPersonalizedMessage = (lead: Lead) => {
   const name = lead.contact_name ? `, ${lead.contact_name}` : "";
   const angle = lead.offer_angle || `показати ${lead.business_name} не просто як послугу, а як історію людини за бізнесом`;
@@ -1655,7 +1657,7 @@ function TodayPage({
     })
     .slice(0, 9);
   const topDeal = [...activeLeads].sort((a, b) => numericValue(b.deal_value) - numericValue(a.deal_value))[0];
-  const todayTasks = tasks.filter((task) => task.due_date <= today && task.status !== "Done").slice(0, 6);
+  const todayTasks = tasks.filter((task) => task.due_date <= today && !["Done", "Cancelled"].includes(task.status) && !isLeadClosed(leads.find((lead) => lead.id === task.related_lead_id))).slice(0, 6);
   const firstPriorityLead = overdueLeads[0] ?? actionQueue[0] ?? null;
 
   async function copyLeadMessage(lead: Lead) {
@@ -1812,7 +1814,7 @@ function Dashboard({ today, stats, leads, tasks, packages, dailyTargets, onDaily
   onOpenLead: (id: string) => void;
   onStatus: (id: string, status: LeadStatus) => void;
 }) {
-  const todayTasks = tasks.filter((task) => task.due_date <= today && task.status !== "Done");
+  const todayTasks = tasks.filter((task) => task.due_date <= today && !["Done", "Cancelled"].includes(task.status) && !isLeadClosed(leads.find((lead) => lead.id === task.related_lead_id)));
   const dueFollowUps = leads
     .filter((lead) => lead.follow_up_date && lead.follow_up_date <= today && !["Виграно", "Закриті"].includes(visibleLeadStatus(lead.status)))
     .sort((a, b) => a.follow_up_date.localeCompare(b.follow_up_date));
@@ -2560,9 +2562,16 @@ function TasksPage({ today, tomorrow, tasks, leads, onDone, setTasks }: { today:
   const [typeFilter, setTypeFilter] = useState("Усі");
   const [statusFilter, setStatusFilter] = useState("Усі");
   const [editing, setEditing] = useState<Task | null>(null);
-  const filtered = tasks.filter((task) => (typeFilter === "Усі" || task.type === typeFilter) && (statusFilter === "Усі" || task.status === statusFilter));
+  const filtered = tasks.filter((task) => {
+    const relatedLead = leads.find((lead) => lead.id === task.related_lead_id);
+    return (
+      !isLeadClosed(relatedLead) &&
+      (typeFilter === "Усі" || task.type === typeFilter) &&
+      (statusFilter === "Усі" || task.status === statusFilter)
+    );
+  });
   const groups = [
-    ["Прострочені", filtered.filter((task) => task.due_date < today && task.status !== "Done")],
+    ["Прострочені", filtered.filter((task) => task.due_date < today && !["Done", "Cancelled"].includes(task.status))],
     ["Сьогодні", filtered.filter((task) => task.due_date === today)],
     ["Завтра", filtered.filter((task) => task.due_date === tomorrow)],
     ["Усі задачі", filtered]
@@ -2763,8 +2772,8 @@ function CalendarPage({
   ];
   while (calendarCells.length % 7 !== 0) calendarCells.push("");
   const tomorrow = addDays(today, 1);
-  const activeLeads = leads.filter((lead) => lead.status !== "Виграно");
-  const openTasks = tasks.filter((task) => !["Done", "Cancelled"].includes(task.status));
+  const activeLeads = leads.filter((lead) => !isLeadClosed(lead));
+  const openTasks = tasks.filter((task) => !["Done", "Cancelled"].includes(task.status) && !isLeadClosed(leads.find((lead) => lead.id === task.related_lead_id)));
   const overdueLeads = activeLeads.filter((lead) => lead.follow_up_date && lead.follow_up_date < today);
   const todayLeads = activeLeads.filter((lead) => lead.follow_up_date === today);
   const tomorrowLeads = activeLeads.filter((lead) => lead.follow_up_date === tomorrow);

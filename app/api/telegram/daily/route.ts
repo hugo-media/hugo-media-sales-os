@@ -33,6 +33,7 @@ type TaskRow = {
   id: string;
   title: string;
   type: string;
+  related_lead_id?: string | null;
   due_date: string | null;
   status: string;
   priority: string;
@@ -98,6 +99,10 @@ function leadAction(lead: LeadRow, today: string) {
   return "Відкрити CRM і визначити наступний крок";
 }
 
+function isLeadClosed(lead?: Pick<LeadRow, "status"> | null) {
+  return Boolean(lead && ["Закриті", "Виграно"].includes(visibleLeadStatus(lead.status)));
+}
+
 async function supabaseGet<T>(table: string, query: string) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -159,9 +164,9 @@ function buildMorningDigest(leads: LeadRow[], tasks: TaskRow[], today: string) {
     .sort((a, b) => (a.follow_up_date || "").localeCompare(b.follow_up_date || ""));
   const overdue = due.filter((lead) => lead.follow_up_date && lead.follow_up_date < today);
   const hot = [...activeLeads].sort((a, b) => leadScore(b, today) - leadScore(a, today)).slice(0, 5);
-  const todayTasks = tasks.filter((task) => task.due_date && task.due_date <= today && task.status !== "Done");
+  const todayTasks = tasks.filter((task) => task.due_date && task.due_date <= today && !["Done", "Cancelled"].includes(task.status) && !isLeadClosed(leads.find((lead) => lead.id === task.related_lead_id)));
   const todayCalls = activeLeads.filter((lead) => visibleLeadStatus(lead.status) === "Дзвінок" && lead.follow_up_date === today);
-  const todayCallTasks = tasks.filter((task) => task.type === "call" && task.due_date === today && task.status !== "Done");
+  const todayCallTasks = tasks.filter((task) => task.type === "call" && task.due_date === today && !["Done", "Cancelled"].includes(task.status) && !isLeadClosed(leads.find((lead) => lead.id === task.related_lead_id)));
   const noResponseToClose = activeLeads.filter((lead) => visibleLeadStatus(lead.status) === "Без відповіді" && lead.follow_up_date && lead.follow_up_date <= today);
   const pipeline = activeLeads.reduce((sum, lead) => sum + (Number(lead.deal_value) || 0), 0);
 
@@ -211,7 +216,7 @@ function buildEveningDigest(leads: LeadRow[], tasks: TaskRow[], today: string) {
   const replies = leads.filter((lead) => ["Контакт", "Без відповіді", "КП", "На паузі", "Виграно"].includes(visibleLeadStatus(lead.status)));
   const overdueTomorrow = leads.filter((lead) => lead.follow_up_date && lead.follow_up_date <= today && lead.status !== "Виграно");
   const noResponseToClose = leads.filter((lead) => visibleLeadStatus(lead.status) === "Без відповіді" && lead.follow_up_date && lead.follow_up_date <= today);
-  const doneTasks = tasks.filter((task) => task.status === "Done" && task.due_date === today);
+  const doneTasks = tasks.filter((task) => task.status === "Done" && task.due_date === today && !isLeadClosed(leads.find((lead) => lead.id === task.related_lead_id)));
 
   const lines = [
     "<b>Hugo Media Sales OS — вечір</b>",
@@ -250,7 +255,7 @@ export async function GET(request: Request) {
     const today = dateKey();
     const [leads, tasks] = await Promise.all([
       supabaseGet<LeadRow[]>("leads", "select=id,business_name,niche,city,status,deal_value,follow_up_date,next_action,updated_at,created_at&order=follow_up_date.asc"),
-      supabaseGet<TaskRow[]>("tasks", "select=id,title,type,due_date,status,priority&order=due_date.asc")
+      supabaseGet<TaskRow[]>("tasks", "select=id,title,type,related_lead_id,due_date,status,priority&order=due_date.asc")
     ]);
 
     const message = type === "evening" ? buildEveningDigest(leads, tasks, today) : buildMorningDigest(leads, tasks, today);
