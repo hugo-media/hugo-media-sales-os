@@ -2384,7 +2384,7 @@ function LeadSidePanel({
               <Input label="Follow-up дата" type="date" value={lead.follow_up_date} onChange={(value) => onPatch({ follow_up_date: value })} />
               <Input label="Останній контакт" type="date" value={lead.last_contact_date} onChange={(value) => onPatch({ last_contact_date: value })} />
             </div>
-            <Textarea label="Наступна дія" value={lead.next_action || suggestedAction} onChange={(value) => onPatch({ next_action: value })} />
+            <Textarea label="Наступна дія" value={lead.next_action} onChange={(value) => onPatch({ next_action: value })} />
             <div className="rounded-lg border border-blue/30 bg-blue/10 p-3">
               <div className="mb-1 flex items-center gap-2 text-sm font-bold text-sky-100">
                 <Sparkles className="h-4 w-4" />
@@ -2828,7 +2828,7 @@ function CalendarPage({
                 </div>
                 <div className="mt-3 grid gap-2 sm:grid-cols-[150px_1fr]">
                   <Input label="Дата" type="date" value={lead.follow_up_date} onChange={(value) => onPatchLead(lead.id, { follow_up_date: value })} />
-                  <Input label="Next action" value={lead.next_action || getSuggestedNextAction(lead, today)} onChange={(value) => onPatchLead(lead.id, { next_action: value })} />
+                  <Input label="Next action" value={lead.next_action} onChange={(value) => onPatchLead(lead.id, { next_action: value })} />
                 </div>
               </div>
             )) : (
@@ -2962,7 +2962,7 @@ function CalendarPage({
                     <button className="block w-full text-left hover:text-blue" onClick={() => onOpenLead(lead.id)}>
                       <div className="line-clamp-1 font-semibold text-blue">{lead.business_name}</div>
                     </button>
-                    <Textarea label="" value={lead.next_action || getSuggestedNextAction(lead, today)} onChange={(value) => onPatchLead(lead.id, { next_action: value })} />
+                    <Textarea label="" value={lead.next_action} onChange={(value) => onPatchLead(lead.id, { next_action: value })} />
                     <div className="mt-2 grid grid-cols-[1fr_auto] gap-2">
                       <Input label="" type="date" value={lead.follow_up_date} onChange={(value) => onPatchLead(lead.id, { follow_up_date: value })} />
                       <button className="rounded-md border border-line px-2 text-xs font-semibold hover:bg-white hover:text-ink" onClick={() => onPatchLead(lead.id, { follow_up_date: "" })}>Очистити</button>
