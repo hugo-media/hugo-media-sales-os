@@ -12,6 +12,7 @@ type LeadStatus =
   | "Думає"
   | "На паузі"
   | "Виграно"
+  | "Закриті"
   | "Програно"
   | "Повернутись пізніше";
 
@@ -72,6 +73,7 @@ function visibleLeadStatus(status: LeadStatus): LeadStatus {
   if (status === "КП відправлено") return "КП";
   if (status === "Дзвінок заплановано") return "Дзвінок";
   if (status === "Думає" || status === "Повернутись пізніше") return "На паузі";
+  if (status === "Програно") return "Закриті";
   return status;
 }
 
@@ -84,7 +86,7 @@ function leadScore(lead: LeadRow, today: string) {
   if (["Контакт", "Без відповіді", "Дзвінок", "КП", "На паузі"].includes(visibleLeadStatus(lead.status))) score += 24;
   if (lead.follow_up_date && lead.follow_up_date < today) score += 18;
   if (lead.follow_up_date === today) score += 14;
-  if (lead.status === "Програно") score -= 30;
+  if (visibleLeadStatus(lead.status) === "Закриті") score -= 30;
   if (lead.status === "Виграно") score -= 20;
   return Math.max(0, Math.min(100, score));
 }
@@ -154,7 +156,7 @@ async function sendTelegram(chatId: number | string, text: string) {
 }
 
 function buildStatus(leads: LeadRow[], tasks: TaskRow[], today: string) {
-  const activeLeads = leads.filter((lead) => !["Виграно", "Програно"].includes(lead.status));
+  const activeLeads = leads.filter((lead) => !["Виграно", "Закриті"].includes(visibleLeadStatus(lead.status)));
   const due = activeLeads.filter((lead) => lead.follow_up_date && lead.follow_up_date <= today);
   const overdue = due.filter((lead) => lead.follow_up_date && lead.follow_up_date < today);
   const hot = [...activeLeads].sort((a, b) => leadScore(b, today) - leadScore(a, today)).slice(0, 5);
@@ -189,7 +191,7 @@ function buildStatus(leads: LeadRow[], tasks: TaskRow[], today: string) {
 
 function buildCalls(leads: LeadRow[], tasks: TaskRow[], today: string) {
   const leadCalls = leads
-    .filter((lead) => !["Виграно", "Програно"].includes(lead.status) && visibleLeadStatus(lead.status) === "Дзвінок")
+    .filter((lead) => !["Виграно", "Закриті"].includes(visibleLeadStatus(lead.status)) && visibleLeadStatus(lead.status) === "Дзвінок")
     .sort((a, b) => (a.follow_up_date || "").localeCompare(b.follow_up_date || ""));
   const callTasks = tasks
     .filter((task) => task.type === "call" && task.status !== "Done")
@@ -232,7 +234,7 @@ function buildLeadList(title: string, leads: LeadRow[], today: string) {
 }
 
 function buildPipeline(leads: LeadRow[], today: string) {
-  const activeLeads = leads.filter((lead) => !["Виграно", "Програно"].includes(lead.status));
+  const activeLeads = leads.filter((lead) => !["Виграно", "Закриті"].includes(visibleLeadStatus(lead.status)));
   const topDeals = [...activeLeads].sort((a, b) => (Number(b.deal_value) || 0) - (Number(a.deal_value) || 0)).slice(0, 8);
   const total = activeLeads.reduce((sum, lead) => sum + (Number(lead.deal_value) || 0), 0);
   const lines = [
@@ -278,7 +280,7 @@ export async function POST(request: Request) {
       supabaseGet<TaskRow[]>("tasks", "select=id,title,type,due_date,status&order=due_date.asc")
     ]);
 
-    const activeLeads = leads.filter((lead) => !["Виграно", "Програно"].includes(lead.status));
+    const activeLeads = leads.filter((lead) => !["Виграно", "Закриті"].includes(visibleLeadStatus(lead.status)));
     if (text === "🔥 Кому писати") {
       const outreach = activeLeads
         .filter((lead) => ["Новий", "Контакт", "Без відповіді", "КП", "На паузі"].includes(visibleLeadStatus(lead.status)))

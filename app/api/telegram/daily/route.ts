@@ -12,6 +12,7 @@ type LeadStatus =
   | "Думає"
   | "На паузі"
   | "Виграно"
+  | "Закриті"
   | "Програно"
   | "Повернутись пізніше";
 
@@ -68,6 +69,7 @@ function visibleLeadStatus(status: LeadStatus): LeadStatus {
   if (status === "КП відправлено") return "КП";
   if (status === "Дзвінок заплановано") return "Дзвінок";
   if (status === "Думає" || status === "Повернутись пізніше") return "На паузі";
+  if (status === "Програно") return "Закриті";
   return status;
 }
 
@@ -80,7 +82,7 @@ function leadScore(lead: LeadRow, today: string) {
   if (["Контакт", "Без відповіді", "Дзвінок", "КП", "На паузі"].includes(visibleLeadStatus(lead.status))) score += 24;
   if (lead.follow_up_date && lead.follow_up_date < today) score += 18;
   if (lead.follow_up_date === today) score += 14;
-  if (lead.status === "Програно") score -= 30;
+  if (visibleLeadStatus(lead.status) === "Закриті") score -= 30;
   if (lead.status === "Виграно") score -= 20;
   return Math.max(0, Math.min(100, score));
 }
@@ -151,7 +153,7 @@ async function sendTelegram(text: string) {
 }
 
 function buildMorningDigest(leads: LeadRow[], tasks: TaskRow[], today: string) {
-  const activeLeads = leads.filter((lead) => !["Виграно", "Програно"].includes(lead.status));
+  const activeLeads = leads.filter((lead) => !["Виграно", "Закриті"].includes(visibleLeadStatus(lead.status)));
   const due = activeLeads
     .filter((lead) => lead.follow_up_date && lead.follow_up_date <= today)
     .sort((a, b) => (a.follow_up_date || "").localeCompare(b.follow_up_date || ""));

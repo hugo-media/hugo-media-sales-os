@@ -41,6 +41,7 @@ type LeadStatus =
   | "Думає"
   | "На паузі"
   | "Виграно"
+  | "Закриті"
   | "Програно"
   | "Повернутись пізніше";
 
@@ -197,7 +198,7 @@ const statuses: LeadStatus[] = [
   "КП",
   "На паузі",
   "Виграно",
-  "Програно"
+  "Закриті"
 ];
 
 const visibleLeadStatus = (status: LeadStatus): LeadStatus => {
@@ -206,6 +207,7 @@ const visibleLeadStatus = (status: LeadStatus): LeadStatus => {
   if (status === "КП відправлено") return "КП";
   if (status === "Дзвінок заплановано") return "Дзвінок";
   if (status === "Думає" || status === "Повернутись пізніше") return "На паузі";
+  if (status === "Програно") return "Закриті";
   return status;
 };
 
@@ -386,7 +388,7 @@ const getLeadScore = (lead: Lead, today: string) => {
   if (lead.follow_up_date === today) score += 14;
   if (lead.offer_angle) score += 6;
   if (lead.contact_name || lead.phone || lead.email || lead.instagram_url) score += 6;
-  if (lead.status === "Програно") score -= 30;
+  if (visibleLeadStatus(lead.status) === "Закриті") score -= 30;
   if (lead.status === "Виграно") score -= 20;
   return Math.max(0, Math.min(100, score));
 };
@@ -404,7 +406,7 @@ const getSuggestedNextAction = (lead: Lead, today: string) => {
   if (lead.status === "КП" || lead.status === "КП відправлено") return "Повернутися з конкретним наступним кроком після КП";
   if (lead.status === "Дзвінок" || lead.status === "Дзвінок заплановано") return "Підготувати дзвінок і перевірити потребу клієнта";
   if (lead.status === "На паузі" || lead.status === "Думає" || lead.status === "Повернутись пізніше") return "Уточнити головний сумнів і дедлайн рішення";
-  if (lead.status === "Програно") return getLossReason(lead) ? "Повернутися пізніше з іншим кутом" : "Зафіксувати причину втрати";
+  if (visibleLeadStatus(lead.status) === "Закриті") return getLossReason(lead) ? "Лід закритий: причина зафіксована" : "Лід закритий";
   if (lead.status === "Виграно") return "Підготувати бриф і дату зйомки";
   return lead.next_action || "Визначити наступну дію";
 };
@@ -631,6 +633,7 @@ const statusStyles: Record<LeadStatus, string> = {
   Думає: "bg-fuchsia-500/15 text-fuchsia-200 border-fuchsia-400/30",
   "На паузі": "bg-zinc-500/15 text-zinc-200 border-zinc-400/25",
   Виграно: "bg-emerald-500/20 text-emerald-100 border-emerald-400/35",
+  Закриті: "bg-rose/15 text-rose-200 border-rose/35",
   Програно: "bg-rose/15 text-rose-200 border-rose/35",
   "Повернутись пізніше": "bg-zinc-500/15 text-zinc-200 border-zinc-400/25"
 };
@@ -1050,7 +1053,7 @@ export default function SalesOs() {
         );
       const matchesStatus =
         statusFilter === "Усі" ||
-        (statusFilter === "Закриті" ? ["Програно", "Виграно"].includes(lead.status) : leadStatus === statusFilter);
+        leadStatus === statusFilter;
       return (
         matchesQuery &&
         matchesStatus &&
@@ -1071,7 +1074,7 @@ export default function SalesOs() {
     proposals: leads.filter((lead) => visibleLeadStatus(lead.status) === "КП").length,
     calls: leads.filter((lead) => visibleLeadStatus(lead.status) === "Дзвінок").length,
     won: leads.filter((lead) => lead.status === "Виграно").length,
-    pipeline: leads.filter((lead) => lead.status !== "Програно" && lead.status !== "Виграно").reduce((sum, lead) => sum + numericValue(lead.deal_value), 0),
+    pipeline: leads.filter((lead) => !["Закриті", "Виграно"].includes(visibleLeadStatus(lead.status))).reduce((sum, lead) => sum + numericValue(lead.deal_value), 0),
     revenue: leads.filter((lead) => lead.status === "Виграно").reduce((sum, lead) => sum + numericValue(lead.deal_value), 0)
   };
 
@@ -1161,7 +1164,7 @@ export default function SalesOs() {
     const baseDate = today;
     const currentLead = leads.find((lead) => lead.id === leadId);
     if (!currentLead) return;
-    if (status === "Програно") {
+    if (status === "Закриті" || status === "Програно") {
       closeLead(leadId);
       return;
     }
@@ -1176,6 +1179,7 @@ export default function SalesOs() {
       "КП відправлено": addDays(baseDate, settings.sales.follow_up_delay_proposal_sent),
       Дзвінок: baseDate,
       Думає: addDays(baseDate, settings.sales.follow_up_delay_thinking),
+      Закриті: addDays(baseDate, settings.sales.return_delay_lost),
       Програно: addDays(baseDate, settings.sales.return_delay_lost)
     };
 
@@ -1264,7 +1268,7 @@ export default function SalesOs() {
     const cleanReason = reason.trim();
     const leadToPersist = normalizeLeadDates({
       ...currentLead,
-      status: "Програно",
+      status: "Закриті",
       follow_up_date: "",
       next_action: "",
       notes: setLossReasonInNotes(currentLead.notes, cleanReason || "Причину не вказано"),
@@ -1276,7 +1280,7 @@ export default function SalesOs() {
     const historyItem: HistoryItem = {
       id: newId(),
       lead_id: leadId,
-      status: "Програно",
+      status: "Закриті",
       note: `Ліда закрито. Причина: ${cleanReason || "не вказано"}`,
       created_at: today
     };
@@ -1638,7 +1642,7 @@ function TodayPage({
   onOpenFollowups: () => void;
   onCopied: () => void;
 }) {
-  const activeLeads = leads.filter((lead) => !["Виграно", "Програно"].includes(lead.status));
+  const activeLeads = leads.filter((lead) => !["Виграно", "Закриті"].includes(visibleLeadStatus(lead.status)));
   const dueLeads = activeLeads.filter((lead) => lead.follow_up_date && lead.follow_up_date <= today);
   const overdueLeads = dueLeads.filter((lead) => lead.follow_up_date < today);
   const readyForOutreach = activeLeads.filter((lead) => ["Новий", "Проаналізований"].includes(lead.status));
@@ -1812,12 +1816,12 @@ function Dashboard({ today, stats, leads, tasks, packages, dailyTargets, onDaily
 }) {
   const todayTasks = tasks.filter((task) => task.due_date <= today && task.status !== "Done");
   const dueFollowUps = leads
-    .filter((lead) => lead.follow_up_date && lead.follow_up_date <= today && lead.status !== "Виграно")
+    .filter((lead) => lead.follow_up_date && lead.follow_up_date <= today && !["Виграно", "Закриті"].includes(visibleLeadStatus(lead.status)))
     .sort((a, b) => a.follow_up_date.localeCompare(b.follow_up_date));
   const overdueFollowUps = dueFollowUps.filter((lead) => lead.follow_up_date < today);
   const todayFollowUps = dueFollowUps.filter((lead) => lead.follow_up_date === today);
   const freshLeads = leads.filter((lead) => ["Новий", "Проаналізований"].includes(lead.status)).slice(0, 4);
-  const activeLeads = leads.filter((lead) => !["Виграно", "Програно"].includes(lead.status));
+  const activeLeads = leads.filter((lead) => !["Виграно", "Закриті"].includes(visibleLeadStatus(lead.status)));
   const rankedLeads = [...activeLeads].sort((a, b) => getLeadScore(b, today) - getLeadScore(a, today));
   const focusQueue = rankedLeads
     .filter((lead) => dueFollowUps.some((item) => item.id === lead.id) || ["Новий", "Контакт", "Без відповіді", "Дзвінок", "КП", "На паузі"].includes(visibleLeadStatus(lead.status)))
@@ -2001,7 +2005,7 @@ function Dashboard({ today, stats, leads, tasks, packages, dailyTargets, onDaily
           <SectionTitle title="Пакети" />
           <div className="space-y-3">
             {packages.map((pkg) => {
-              const count = leads.filter((lead) => lead.package_interest === pkg.name && lead.status !== "Програно").length;
+              const count = leads.filter((lead) => lead.package_interest === pkg.name && visibleLeadStatus(lead.status) !== "Закриті").length;
               return (
                 <div key={pkg.name} className="rounded-lg border border-line bg-panel2 p-3">
                   <div className="flex justify-between gap-3">
@@ -2064,7 +2068,7 @@ function LeadsPage(props: {
           <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
           <input className="field pl-10" value={props.query} onChange={(event) => props.setQuery(event.target.value)} placeholder="Пошук: бізнес, місто, контакт, ніша" />
         </label>
-        <Select value={props.statusFilter} onChange={props.setStatusFilter} options={["Усі", ...statuses, "Закриті"]} />
+        <Select value={props.statusFilter} onChange={props.setStatusFilter} options={["Усі", ...statuses]} />
         <Select value={props.nicheFilter} onChange={props.setNicheFilter} options={["Усі", ...niches]} />
         <Select value={props.cityFilter} onChange={props.setCityFilter} options={["Усі", ...props.cities]} />
         <Select value={props.packageFilter} onChange={props.setPackageFilter} options={["Усі", ...props.packages.map((pkg) => pkg.name)]} />
@@ -2155,7 +2159,7 @@ function PipelinePage({
   onCopied: () => void;
 }) {
   const [draggingLeadId, setDraggingLeadId] = useState<string | null>(null);
-  const activePipeline = leads.filter((lead) => lead.status !== "Програно");
+  const activePipeline = leads.filter((lead) => !["Закриті", "Виграно"].includes(visibleLeadStatus(lead.status)));
   const total = activePipeline.reduce((sum, lead) => sum + numericValue(lead.deal_value), 0);
   const draggingLead = draggingLeadId ? leads.find((lead) => lead.id === draggingLeadId) ?? null : null;
   const quickPipelineStatuses: LeadStatus[] = ["Контакт", "Без відповіді", "Дзвінок", "КП", "На паузі", "Виграно"];
@@ -2188,7 +2192,7 @@ function PipelinePage({
         </Card>
         <Card>
           <div className="text-sm text-slate-400">Потрібен follow-up</div>
-          <div className="mt-2 text-2xl font-black">{leads.filter((lead) => lead.follow_up_date && lead.status !== "Виграно").length}</div>
+          <div className="mt-2 text-2xl font-black">{leads.filter((lead) => lead.follow_up_date && !["Виграно", "Закриті"].includes(visibleLeadStatus(lead.status))).length}</div>
         </Card>
       </div>
 
@@ -2210,7 +2214,7 @@ function PipelinePage({
         <div className="grid auto-cols-[82vw] grid-flow-col gap-3 lg:auto-cols-[280px]">
           {statuses.map((status) => {
             const columnLeads = leads.filter((lead) => visibleLeadStatus(lead.status) === status);
-            const columnValue = columnLeads.reduce((sum, lead) => sum + numericValue(lead.deal_value), 0);
+            const columnValue = visibleLeadStatus(status) === "Закриті" ? 0 : columnLeads.reduce((sum, lead) => sum + numericValue(lead.deal_value), 0);
             const isDropTarget = Boolean(draggingLead && visibleLeadStatus(draggingLead.status) !== status);
             return (
               <section
@@ -2261,6 +2265,12 @@ function PipelinePage({
                         <LeadScorePill lead={lead} today={today} />
                         {getLossReason(lead) ? <span className="rounded-full border border-rose/35 px-2 py-1 text-xs text-rose-200">{getLossReason(lead)}</span> : null}
                       </div>
+                      {visibleLeadStatus(lead.status) === "Закриті" ? (
+                        <div className="mt-3 rounded-md border border-rose/30 bg-rose/10 p-2 text-xs leading-5 text-rose-100">
+                          <div className="font-bold">Чому закритий</div>
+                          <div>{getLossReason(lead) || "Причину не вказано"}</div>
+                        </div>
+                      ) : null}
                       {lead.follow_up_date || lead.next_action ? (
                         <div className="mt-3 rounded-md border border-line bg-ink/35 p-2 text-xs text-slate-300">
                           {lead.follow_up_date ? <div className="font-semibold text-amber-100">Follow-up: {lead.follow_up_date}</div> : null}
@@ -2363,7 +2373,7 @@ function LeadDetail({ lead, history, onBack, onStatus, onEdit, onDelete, onTask 
         <Card>
           <SectionTitle title="Швидкі статуси" />
           <div className="flex flex-wrap gap-2">
-            {(["Контакт", "Без відповіді", "Дзвінок", "КП", "На паузі", "Виграно", "Програно"] as LeadStatus[]).map((status) => (
+            {(["Контакт", "Без відповіді", "Дзвінок", "КП", "На паузі", "Виграно", "Закриті"] as LeadStatus[]).map((status) => (
               <button key={status} className="rounded-lg border border-line bg-panel2 px-4 py-2 text-sm font-semibold hover:bg-white hover:text-ink" onClick={() => onStatus(lead.id, status)}>
                 {status}
               </button>
@@ -2416,7 +2426,7 @@ function LeadSidePanel({
   onTask: () => void;
   onCopied: () => void;
 }) {
-  const quickStatuses: LeadStatus[] = ["Контакт", "Без відповіді", "Дзвінок", "КП", "На паузі", "Виграно", "Програно"];
+  const quickStatuses: LeadStatus[] = ["Контакт", "Без відповіді", "Дзвінок", "КП", "На паузі", "Виграно", "Закриті"];
   const visibleTemplates = templates.slice(0, 5);
   const score = getLeadScore(lead, today);
   const temperature = getLeadTemperature(score);
@@ -2471,7 +2481,7 @@ function LeadSidePanel({
                 Поставити як next action
               </button>
             </div>
-            {lead.status === "Програно" ? (
+            {visibleLeadStatus(lead.status) === "Закриті" ? (
               <Select
                 label="Причина закриття"
                 value={lossReason || "немає відповіді"}
@@ -2662,7 +2672,7 @@ function FollowupsPage({
   onOpen: (id: string) => void;
 }) {
   const items = leads
-    .filter((lead) => lead.follow_up_date && lead.status !== "Виграно")
+    .filter((lead) => lead.follow_up_date && !["Виграно", "Закриті"].includes(visibleLeadStatus(lead.status)))
     .sort((a, b) => a.follow_up_date.localeCompare(b.follow_up_date));
   const updateLead = (id: string, patch: Partial<Lead>) => onPatch(id, patch);
   return (
@@ -3090,7 +3100,7 @@ function ContentPage({ today, items, leads, setItems }: { today: string; items: 
   const [editing, setEditing] = useState<ContentItem | null>(null);
   const activeNiches = Array.from(
     leads
-      .filter((lead) => !["Програно", "Виграно"].includes(lead.status))
+      .filter((lead) => !["Закриті", "Виграно"].includes(visibleLeadStatus(lead.status)))
       .reduce((map, lead) => {
         const current = map.get(lead.niche) ?? { count: 0, value: 0 };
         map.set(lead.niche, { count: current.count + 1, value: current.value + numericValue(lead.deal_value) });
@@ -3256,7 +3266,7 @@ function AnalyticsPage({ leads }: { leads: Lead[] }) {
           ["Відповідей", replied],
           ["КП", proposals],
           ["Виграно", won],
-          ["Програно", leads.filter((lead) => lead.status === "Програно").length],
+          ["Закриті", leads.filter((lead) => visibleLeadStatus(lead.status) === "Закриті").length],
           ["Потенційний дохід", moneyAmount(leads.reduce((sum, lead) => sum + numericValue(lead.deal_value), 0))],
           ["Конверсія написав → відповів", written ? `${Math.round((replied / written) * 100)}%` : "0%"]
         ].map(([label, value]) => (
