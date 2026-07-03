@@ -1545,8 +1545,6 @@ export default function SalesOs() {
           onEdit={() => { setEditingLead(selectedLead); setIsLeadFormOpen(true); }}
           onDelete={() => window.confirm("Видалити лід?") && deleteLead(selectedLead.id)}
           onCloseLead={() => closeLead(selectedLead.id)}
-          onPatch={(patch) => patchLead(selectedLead.id, patch)}
-          onStatus={(status) => updateLeadStatus(selectedLead.id, status)}
           onTask={() =>
             setTasks((current) => [
               newTask(today, {
@@ -2408,8 +2406,6 @@ function LeadSidePanel({
   onEdit,
   onDelete,
   onCloseLead,
-  onPatch,
-  onStatus,
   onTask,
   onCopied
 }: {
@@ -2421,12 +2417,9 @@ function LeadSidePanel({
   onEdit: () => void;
   onDelete: () => void;
   onCloseLead: () => void;
-  onPatch: (patch: Partial<Lead>) => void;
-  onStatus: (status: LeadStatus) => void;
   onTask: () => void;
   onCopied: () => void;
 }) {
-  const quickStatuses: LeadStatus[] = ["Контакт", "Без відповіді", "Дзвінок", "КП", "На паузі", "Виграно", "Закриті"];
   const visibleTemplates = templates.slice(0, 5);
   const score = getLeadScore(lead, today);
   const temperature = getLeadTemperature(score);
@@ -2465,37 +2458,25 @@ function LeadSidePanel({
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
         <Card>
           <div className="grid gap-3">
-            <Select label="Статус" value={visibleLeadStatus(lead.status)} onChange={(value) => onStatus(value as LeadStatus)} options={statuses} />
             <div className="grid gap-3 sm:grid-cols-2">
-              <Input label="Follow-up дата" type="date" value={lead.follow_up_date} onChange={(value) => onPatch({ follow_up_date: value })} />
-              <Input label="Останній контакт" type="date" value={lead.last_contact_date} onChange={(value) => onPatch({ last_contact_date: value })} />
+              <ReadOnlyField label="Статус" value={visibleLeadStatus(lead.status)} />
+              <ReadOnlyField label="Follow-up дата" value={lead.follow_up_date || "не заплановано"} />
+              <ReadOnlyField label="Останній контакт" value={lead.last_contact_date || "не вказано"} />
+              <ReadOnlyField label="Наступна дія" value={lead.next_action || "не вказана"} />
             </div>
-            <Textarea label="Наступна дія" value={lead.next_action} onChange={(value) => onPatch({ next_action: value })} />
             <div className="rounded-lg border border-blue/30 bg-blue/10 p-3">
               <div className="mb-1 flex items-center gap-2 text-sm font-bold text-sky-100">
                 <Sparkles className="h-4 w-4" />
                 Підказка системи
               </div>
               <p className="text-sm text-slate-300">{suggestedAction}</p>
-              <button className="mt-3 rounded-lg border border-blue/40 px-3 py-2 text-xs font-semibold text-sky-100 hover:bg-white hover:text-ink" onClick={() => onPatch({ next_action: suggestedAction })}>
-                Поставити як next action
-              </button>
             </div>
             {visibleLeadStatus(lead.status) === "Закриті" ? (
-              <Select
+              <ReadOnlyField
                 label="Причина закриття"
-                value={lossReason || "немає відповіді"}
-                onChange={(reason) => onPatch({ notes: setLossReasonInNotes(lead.notes, reason) })}
-                options={["немає відповіді", "дорого", "не той сегмент", "пізніше", "не зрозумів цінність", "інший підрядник"]}
+                value={lossReason || "Причину не вказано"}
               />
             ) : null}
-            <div className="flex flex-wrap gap-2">
-              {quickStatuses.map((status) => (
-                <button key={status} className="rounded-lg border border-line px-3 py-2 text-xs font-semibold hover:bg-white hover:text-ink" onClick={() => onStatus(status)}>
-                  {status}
-                </button>
-              ))}
-            </div>
           </div>
         </Card>
 
@@ -2507,7 +2488,6 @@ function LeadSidePanel({
           <div className="rounded-lg border border-line bg-panel2 p-3 text-sm leading-6 text-slate-200">{aiMessage}</div>
           <div className="mt-3 flex flex-wrap gap-2">
             <button className="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-ink" onClick={() => { void navigator.clipboard?.writeText(aiMessage); onCopied(); }}>Скопіювати</button>
-            <button className="rounded-lg border border-line px-3 py-2 text-sm font-semibold" onClick={() => onPatch({ next_action: "Надіслати персоналізоване повідомлення" })}>Додати в next action</button>
           </div>
         </Card>
 
@@ -3669,6 +3649,15 @@ function Textarea({ label, value, onChange }: { label: string; value: string; on
         }}
       />
     </label>
+  );
+}
+
+function ReadOnlyField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-line bg-panel2 p-3">
+      <div className="text-xs uppercase tracking-[0.12em] text-slate-500">{label}</div>
+      <div className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-slate-100">{value || "—"}</div>
+    </div>
   );
 }
 
