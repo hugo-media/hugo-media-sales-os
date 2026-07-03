@@ -3529,19 +3529,58 @@ function Select({ value, onChange, options, label }: { value: string; onChange: 
 }
 
 function Input({ label, value, onChange, defaultValue, type = "text" }: { label: string; value?: string; onChange?: (value: string) => void; defaultValue?: string; type?: string }) {
+  const [draft, setDraft] = useState(value ?? defaultValue ?? "");
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    if (!isFocused) setDraft(value ?? defaultValue ?? "");
+  }, [defaultValue, isFocused, value]);
+
   return (
     <label className="block">
-      <span className="mb-1 block text-xs text-slate-400">{label}</span>
-      <input className="field" type={type} value={value} defaultValue={defaultValue} onChange={(event) => onChange?.(event.target.value)} />
+      {label ? <span className="mb-1 block text-xs text-slate-400">{label}</span> : null}
+      <input
+        className="field"
+        type={type}
+        value={draft}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => {
+          setIsFocused(false);
+          onChange?.(draft);
+        }}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          onChange?.(event.target.value);
+        }}
+      />
     </label>
   );
 }
 
 function Textarea({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  const [isFocused, setIsFocused] = useState(false);
+
+  useEffect(() => {
+    if (!isFocused) setDraft(value);
+  }, [isFocused, value]);
+
   return (
     <label className="block">
-      <span className="mb-1 block text-xs text-slate-400">{label}</span>
-      <textarea className="field min-h-24 resize-y" value={value} onChange={(event) => onChange(event.target.value)} />
+      {label ? <span className="mb-1 block text-xs text-slate-400">{label}</span> : null}
+      <textarea
+        className="field min-h-24 resize-y"
+        value={draft}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => {
+          setIsFocused(false);
+          onChange(draft);
+        }}
+        onChange={(event) => {
+          setDraft(event.target.value);
+          onChange(event.target.value);
+        }}
+      />
     </label>
   );
 }
