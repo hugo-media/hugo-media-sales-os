@@ -355,20 +355,23 @@ const numericValue = (value: unknown) => {
 };
 
 const lossReasonPrefix = "Причина втрати:";
+const closeReasonPrefix = "Причина закриття:";
 
 const getLossReason = (lead: Lead) => {
   const reasonLine = lead.notes
     .split("\n")
     .map((line) => line.trim())
-    .find((line) => line.toLowerCase().startsWith(lossReasonPrefix.toLowerCase()));
-  return reasonLine?.slice(lossReasonPrefix.length).trim() ?? "";
+    .find((line) => [closeReasonPrefix, lossReasonPrefix].some((prefix) => line.toLowerCase().startsWith(prefix.toLowerCase())));
+  if (!reasonLine) return "";
+  const prefix = reasonLine.toLowerCase().startsWith(closeReasonPrefix.toLowerCase()) ? closeReasonPrefix : lossReasonPrefix;
+  return reasonLine.slice(prefix.length).trim();
 };
 
 const setLossReasonInNotes = (notes: string, reason: string) => {
   const lines = notes
     .split("\n")
-    .filter((line) => !line.trim().toLowerCase().startsWith(lossReasonPrefix.toLowerCase()));
-  const nextLines = reason.trim() ? [`${lossReasonPrefix} ${reason.trim()}`, ...lines] : lines;
+    .filter((line) => ![closeReasonPrefix, lossReasonPrefix].some((prefix) => line.trim().toLowerCase().startsWith(prefix.toLowerCase())));
+  const nextLines = reason.trim() ? [`${closeReasonPrefix} ${reason.trim()}`, ...lines] : lines;
   return nextLines.join("\n").trim();
 };
 
@@ -1039,14 +1042,18 @@ export default function SalesOs() {
   const filteredLeads = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     return leads.filter((lead) => {
+      const leadStatus = visibleLeadStatus(lead.status);
       const matchesQuery =
         !normalized ||
         [lead.business_name, lead.city, lead.contact_name, lead.niche].some((value) =>
           value.toLowerCase().includes(normalized)
         );
+      const matchesStatus =
+        statusFilter === "Усі" ||
+        (statusFilter === "Закриті" ? ["Програно", "Виграно"].includes(lead.status) : leadStatus === statusFilter);
       return (
         matchesQuery &&
-        (statusFilter === "Усі" || visibleLeadStatus(lead.status) === statusFilter) &&
+        matchesStatus &&
         (nicheFilter === "Усі" || lead.niche === nicheFilter) &&
         (cityFilter === "Усі" || lead.city === cityFilter) &&
         (packageFilter === "Усі" || lead.package_interest === packageFilter)
@@ -1154,6 +1161,10 @@ export default function SalesOs() {
     const baseDate = today;
     const currentLead = leads.find((lead) => lead.id === leadId);
     if (!currentLead) return;
+    if (status === "Програно") {
+      closeLead(leadId);
+      return;
+    }
 
     const followUpByStatus: Partial<Record<LeadStatus, string>> = {
       Контакт: addDays(baseDate, settings.sales.follow_up_delay_contacted),
@@ -1241,6 +1252,55 @@ export default function SalesOs() {
         ...current
       ]);
     }
+  }
+
+  function closeLead(leadId: string) {
+    const currentLead = leads.find((lead) => lead.id === leadId);
+    if (!currentLead) return;
+
+    const reason = window.prompt(`Чому закриваємо ліда "${currentLead.business_name}"?`, getLossReason(currentLead));
+    if (reason === null) return;
+
+    const cleanReason = reason.trim();
+    const leadToPersist = normalizeLeadDates({
+      ...currentLead,
+      status: "Програно",
+      follow_up_date: "",
+      next_action: "",
+      notes: setLossReasonInNotes(currentLead.notes, cleanReason || "Причину не вказано"),
+      updated_at: today
+    });
+
+    setLeads((current) => current.map((lead) => (lead.id === leadId ? leadToPersist : lead)));
+
+    const historyItem: HistoryItem = {
+      id: newId(),
+      lead_id: leadId,
+      status: "Програно",
+      note: `Ліда закрито. Причина: ${cleanReason || "не вказано"}`,
+      created_at: today
+    };
+    setHistory((current) => [historyItem, ...current]);
+
+    setTasks((current) =>
+      current.map((task) =>
+        task.related_lead_id === leadId && task.status !== "Done"
+          ? { ...task, status: "Cancelled", updated_at: today }
+          : task
+      )
+    );
+
+    if (supabase && dataSource === "supabase") {
+      Promise.all([
+        persistLead(supabase, leadToPersist),
+        upsertRows(supabase, "status_history", [historyItem])
+      ]).catch((error) => {
+        console.error("Lead close save failed", error);
+        setToast("Не вдалося одразу зберегти закриття в Supabase");
+      });
+    }
+
+    setToast("Ліда закрито і перенесено в закриті");
   }
 
   async function saveLead(lead: Lead) {
@@ -1409,6 +1469,7 @@ export default function SalesOs() {
             onOpen={setSelectedLeadId}
             onEdit={(lead) => { setEditingLead(lead); setIsLeadFormOpen(true); }}
             onDelete={deleteLead}
+            onCloseLead={closeLead}
             onDuplicate={(lead) => saveLead({ ...lead, id: newId(), business_name: `${lead.business_name} копія`, created_at: today, updated_at: today })}
             onPatch={patchLead}
             onStatus={updateLeadStatus}
@@ -1479,6 +1540,7 @@ export default function SalesOs() {
           onClose={() => setSelectedLeadId(null)}
           onEdit={() => { setEditingLead(selectedLead); setIsLeadFormOpen(true); }}
           onDelete={() => window.confirm("Видалити лід?") && deleteLead(selectedLead.id)}
+          onCloseLead={() => closeLead(selectedLead.id)}
           onPatch={(patch) => patchLead(selectedLead.id, patch)}
           onStatus={(status) => updateLeadStatus(selectedLead.id, status)}
           onTask={() =>
@@ -1990,6 +2052,7 @@ function LeadsPage(props: {
   onOpen: (id: string) => void;
   onEdit: (lead: Lead) => void;
   onDelete: (id: string) => void;
+  onCloseLead: (id: string) => void;
   onDuplicate: (lead: Lead) => void;
   onPatch: (id: string, patch: Partial<Lead>) => void;
   onStatus: (id: string, status: LeadStatus) => void;
@@ -2001,7 +2064,7 @@ function LeadsPage(props: {
           <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
           <input className="field pl-10" value={props.query} onChange={(event) => props.setQuery(event.target.value)} placeholder="Пошук: бізнес, місто, контакт, ніша" />
         </label>
-        <Select value={props.statusFilter} onChange={props.setStatusFilter} options={["Усі", ...statuses]} />
+        <Select value={props.statusFilter} onChange={props.setStatusFilter} options={["Усі", ...statuses, "Закриті"]} />
         <Select value={props.nicheFilter} onChange={props.setNicheFilter} options={["Усі", ...niches]} />
         <Select value={props.cityFilter} onChange={props.setCityFilter} options={["Усі", ...props.cities]} />
         <Select value={props.packageFilter} onChange={props.setPackageFilter} options={["Усі", ...props.packages.map((pkg) => pkg.name)]} />
@@ -2038,6 +2101,7 @@ function LeadsPage(props: {
               <button className="min-h-10 flex-1 rounded-lg bg-white px-3 text-sm font-semibold text-ink" onClick={() => props.onOpen(lead.id)}>Відкрити</button>
               <IconButton label="Редагувати" onClick={() => props.onEdit(lead)}><Edit3 className="h-4 w-4" /></IconButton>
               <IconButton label="Дублювати" onClick={() => props.onDuplicate(lead)}><Copy className="h-4 w-4" /></IconButton>
+              <IconButton label="Закрити ліда" onClick={() => props.onCloseLead(lead.id)}><X className="h-4 w-4" /></IconButton>
               <IconButton label="Видалити" onClick={() => window.confirm("Видалити лід?") && props.onDelete(lead.id)}><Trash2 className="h-4 w-4" /></IconButton>
             </div>
           </article>
@@ -2063,6 +2127,7 @@ function LeadsPage(props: {
               <button className="rounded-md border border-line px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-white hover:text-ink" onClick={() => props.onOpen(lead.id)}>Відкрити</button>
               <IconButton label="Редагувати" onClick={() => props.onEdit(lead)}><Edit3 className="h-4 w-4" /></IconButton>
               <IconButton label="Дублювати" onClick={() => props.onDuplicate(lead)}><Copy className="h-4 w-4" /></IconButton>
+              <IconButton label="Закрити ліда" onClick={() => props.onCloseLead(lead.id)}><X className="h-4 w-4" /></IconButton>
               <IconButton label="Видалити" onClick={() => window.confirm("Видалити лід?") && props.onDelete(lead.id)}><Trash2 className="h-4 w-4" /></IconButton>
             </div>
           ])}
@@ -2332,6 +2397,7 @@ function LeadSidePanel({
   onClose,
   onEdit,
   onDelete,
+  onCloseLead,
   onPatch,
   onStatus,
   onTask,
@@ -2344,6 +2410,7 @@ function LeadSidePanel({
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onCloseLead: () => void;
   onPatch: (patch: Partial<Lead>) => void;
   onStatus: (status: LeadStatus) => void;
   onTask: () => void;
@@ -2406,7 +2473,7 @@ function LeadSidePanel({
             </div>
             {lead.status === "Програно" ? (
               <Select
-                label="Причина втрати"
+                label="Причина закриття"
                 value={lossReason || "немає відповіді"}
                 onChange={(reason) => onPatch({ notes: setLossReasonInNotes(lead.notes, reason) })}
                 options={["немає відповіді", "дорого", "не той сегмент", "пізніше", "не зрозумів цінність", "інший підрядник"]}
@@ -2489,9 +2556,10 @@ function LeadSidePanel({
         </Card>
       </div>
 
-      <div className="grid gap-2 border-t border-line p-4 sm:grid-cols-3">
+      <div className="grid gap-2 border-t border-line p-4 sm:grid-cols-4">
         <button className="rounded-lg bg-white px-4 py-3 font-semibold text-ink" onClick={onEdit}>Редагувати</button>
         <button className="rounded-lg border border-line px-4 py-3 font-semibold" onClick={onTask}>Задача на {today}</button>
+        <button className="rounded-lg border border-amber/40 px-4 py-3 font-semibold text-amber-100" onClick={onCloseLead}>Закрити</button>
         <button className="rounded-lg border border-red-400/40 px-4 py-3 font-semibold text-red-200" onClick={onDelete}>Видалити</button>
       </div>
     </aside>
