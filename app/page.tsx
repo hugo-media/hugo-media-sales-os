@@ -951,6 +951,14 @@ function leadToRow(lead: Lead): LeadRow {
   };
 }
 
+function compatibleLeadToRow(lead: Lead) {
+  const row = leadToRow(lead) as unknown as Record<string, unknown>;
+  delete row.priority;
+  delete row.last_message;
+  delete row.proposal_sent_date;
+  return row;
+}
+
 function rowToLead(lead: LeadRow): Lead {
   return {
     ...lead,
@@ -1018,6 +1026,11 @@ async function supabaseRequest<T>(
   return text ? (JSON.parse(text) as T) : (null as T);
 }
 
+function isMissingSupabaseColumn(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("PGRST204") || message.includes("schema cache") || message.includes("Could not find the");
+}
+
 async function fetchSupabaseSnapshot(
   connection: SupabaseConnection
 ): Promise<{ snapshot: CrmSnapshot | null; error?: string }> {
@@ -1063,12 +1076,26 @@ async function upsertRows<T>(connection: SupabaseConnection, table: string, rows
 }
 
 async function persistLead(connection: SupabaseConnection, lead: Lead) {
-  await upsertRows(connection, "leads", [leadToRow(lead)]);
+  try {
+    await upsertRows(connection, "leads", [leadToRow(lead)]);
+  } catch (error) {
+    if (!isMissingSupabaseColumn(error)) throw error;
+    await upsertRows(connection, "leads", [compatibleLeadToRow(lead)]);
+  }
 }
 
 function syncSupabaseSnapshot(connection: SupabaseConnection, snapshot: CrmSnapshot) {
+  const upsertLeads = async () => {
+    try {
+      await upsertRows(connection, "leads", snapshot.leads.map(leadToRow));
+    } catch (error) {
+      if (!isMissingSupabaseColumn(error)) throw error;
+      await upsertRows(connection, "leads", snapshot.leads.map(compatibleLeadToRow));
+    }
+  };
+
   void Promise.all([
-    upsertRows(connection, "leads", snapshot.leads.map(leadToRow)),
+    upsertLeads(),
     upsertRows(connection, "tasks", snapshot.tasks.map(cleanTask)),
     upsertRows(connection, "content_items", snapshot.contentItems.map(contentToRow)),
     upsertRows(connection, "templates", snapshot.templates),

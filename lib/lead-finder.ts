@@ -36,6 +36,8 @@ type LeadLookup = {
   email: string | null;
 };
 
+type SettingsRow<T> = { key: string; value: T | null };
+
 type OverpassElement = {
   id: number;
   type: string;
@@ -92,6 +94,7 @@ const nicheAliases: Record<string, string[]> = {
   translator: ["Переклади"]
 };
 const targetKeywords = ["ukrain", "ukraiń", "ukraina", "україн", "pobyt", "legalizacja", "karta pobytu", "cudzoziem", "księgowość", "biuro rachunkowe", "beauty", "auto"];
+const candidateSettingsKey = "lead_candidates";
 
 export function dateKey(timeZone = process.env.TELEGRAM_TIME_ZONE || "Europe/Kyiv") {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -127,6 +130,27 @@ async function supabaseRequest<T>(table: string, query: string, init?: RequestIn
   if (response.status === 204) return null as T;
   const text = await response.text();
   return text ? (JSON.parse(text) as T) : (null as T);
+}
+
+function isMissingSupabaseColumn(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("PGRST204") || message.includes("schema cache") || message.includes("Could not find the");
+}
+
+async function readCandidateStore() {
+  const rows = await supabaseRequest<SettingsRow<LeadCandidate[]>[]>(
+    "settings",
+    `select=key,value&key=eq.${candidateSettingsKey}&limit=1`
+  );
+  return Array.isArray(rows[0]?.value) ? rows[0].value ?? [] : [];
+}
+
+async function writeCandidateStore(candidates: LeadCandidate[]) {
+  await supabaseRequest<null>("settings", "on_conflict=key", {
+    method: "POST",
+    headers: { prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify([{ key: candidateSettingsKey, value: candidates }])
+  });
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 9000) {
@@ -283,29 +307,31 @@ function hasDuplicate(candidate: LeadCandidate, leads: LeadLookup[], candidates:
 }
 
 export async function getCandidate(candidateId: string) {
-  const rows = await supabaseRequest<LeadCandidate[]>("lead_candidates", `select=*&id=eq.${encodeURIComponent(candidateId)}&limit=1`);
-  return rows[0] ?? null;
+  const candidates = await readCandidateStore();
+  return candidates.find((candidate) => candidate.id === candidateId) ?? null;
 }
 
 export async function listCandidates(limit = 10) {
-  return supabaseRequest<LeadCandidate[]>("lead_candidates", `select=*&status=eq.Candidate&order=media_score.desc&limit=${limit}`);
+  const candidates = await readCandidateStore();
+  return candidates
+    .filter((candidate) => candidate.status === "Candidate")
+    .sort((a, b) => b.media_score - a.media_score)
+    .slice(0, limit);
 }
 
 export async function saveCandidates(candidates: LeadCandidate[]) {
   if (!candidates.length) return;
-  await supabaseRequest<null>("lead_candidates", "on_conflict=id", {
-    method: "POST",
-    headers: { prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify(candidates)
-  });
+  const existing = await readCandidateStore();
+  const byId = new Map(existing.map((candidate) => [candidate.id, candidate]));
+  candidates.forEach((candidate) => byId.set(candidate.id, candidate));
+  await writeCandidateStore([...byId.values()]);
 }
 
 export async function updateCandidateStatus(candidateId: string, status: LeadCandidateStatus) {
-  await supabaseRequest<null>("lead_candidates", `id=eq.${encodeURIComponent(candidateId)}`, {
-    method: "PATCH",
-    headers: { prefer: "return=minimal" },
-    body: JSON.stringify({ status, updated_at: dateKey() })
-  });
+  const candidates = await readCandidateStore();
+  await writeCandidateStore(candidates.map((candidate) =>
+    candidate.id === candidateId ? { ...candidate, status, updated_at: dateKey() } : candidate
+  ));
 }
 
 export async function addCandidateToCrm(candidateId: string, priority: "Medium" | "Hot" = "Medium") {
@@ -313,42 +339,53 @@ export async function addCandidateToCrm(candidateId: string, priority: "Medium" 
   if (!candidate) throw new Error("Candidate not found");
   const leads = await supabaseRequest<LeadLookup[]>("leads", "select=id,business_name,city,website_url,instagram_url,facebook_url,phone,email");
   if (hasDuplicate(candidate, leads, [])) throw new Error("Цей бізнес вже є в CRM.");
-  await supabaseRequest<null>("leads", "on_conflict=id", {
-    method: "POST",
-    headers: { prefer: "resolution=merge-duplicates,return=minimal" },
-    body: JSON.stringify([{
-      business_name: candidate.business_name,
-      niche: candidate.niche,
-      city: candidate.city,
-      contact_name: "",
-      instagram_url: candidate.instagram_url,
-      facebook_url: candidate.facebook_url,
-      website_url: candidate.website_url,
-      phone: candidate.phone,
-      email: candidate.email,
-      contact_channel: candidate.instagram_url ? "Instagram" : candidate.facebook_url ? "Facebook" : "",
-      weak_point: "Перевірити медійну подачу і соцмережі.",
-      offer_angle: "Показати людину за бізнесом і підсилити довіру.",
-      status: "Новий",
-      priority,
-      package_interest: "",
-      deal_value: priority === "Hot" ? 1000 : 0,
-      first_contact_date: dateKey(),
-      last_contact_date: dateKey(),
-      follow_up_date: "",
-      next_action: priority === "Hot" ? "Перевірити соцмережі і написати персоналізоване повідомлення" : "Перевірити кандидата і підготувати перше повідомлення",
-      source: "OpenStreetMap",
-      notes: [
-        `Media score: ${candidate.media_score}/100`,
-        `Media level: ${candidate.media_level}`,
-        `Media notes: ${candidate.media_notes}`,
-        `Чому підходить: ${candidate.why_good_for_hugo}`,
-        `OSM: ${candidate.osm_url}`
-      ].join("\n"),
-      created_at: dateKey(),
-      updated_at: dateKey()
-    }])
-  });
+  const leadPayload: Record<string, unknown> = {
+    business_name: candidate.business_name,
+    niche: candidate.niche,
+    city: candidate.city,
+    contact_name: "",
+    instagram_url: candidate.instagram_url,
+    facebook_url: candidate.facebook_url,
+    website_url: candidate.website_url,
+    phone: candidate.phone,
+    email: candidate.email,
+    contact_channel: candidate.instagram_url ? "Instagram" : candidate.facebook_url ? "Facebook" : "",
+    weak_point: "Перевірити медійну подачу і соцмережі.",
+    offer_angle: "Показати людину за бізнесом і підсилити довіру.",
+    status: "Новий",
+    priority,
+    package_interest: "",
+    deal_value: priority === "Hot" ? 1000 : 0,
+    first_contact_date: dateKey(),
+    last_contact_date: dateKey(),
+    follow_up_date: null,
+    next_action: priority === "Hot" ? "Перевірити соцмережі і написати персоналізоване повідомлення" : "Перевірити кандидата і підготувати перше повідомлення",
+    source: "OpenStreetMap",
+    notes: [
+      `Media score: ${candidate.media_score}/100`,
+      `Media level: ${candidate.media_level}`,
+      `Media notes: ${candidate.media_notes}`,
+      `Чому підходить: ${candidate.why_good_for_hugo}`,
+      `OSM: ${candidate.osm_url}`
+    ].join("\n"),
+    created_at: dateKey(),
+    updated_at: dateKey()
+  };
+  try {
+    await supabaseRequest<null>("leads", "on_conflict=id", {
+      method: "POST",
+      headers: { prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify([leadPayload])
+    });
+  } catch (error) {
+    if (!isMissingSupabaseColumn(error)) throw error;
+    delete leadPayload.priority;
+    await supabaseRequest<null>("leads", "on_conflict=id", {
+      method: "POST",
+      headers: { prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify([leadPayload])
+    });
+  }
   await updateCandidateStatus(candidateId, "Added");
   return candidate;
 }
