@@ -65,33 +65,63 @@ const cityAliases: Record<string, string> = {
   lodz: "Łódź",
   łódź: "Łódź"
 };
+const countryCities: Record<string, string[]> = {
+  poland: defaultCities,
+  polska: defaultCities,
+  польща: defaultCities,
+  pl: defaultCities,
+  germany: ["Berlin", "Hamburg", "München", "Köln", "Frankfurt am Main", "Düsseldorf"],
+  deutschland: ["Berlin", "Hamburg", "München", "Köln", "Frankfurt am Main", "Düsseldorf"],
+  німеччина: ["Berlin", "Hamburg", "München", "Köln", "Frankfurt am Main", "Düsseldorf"],
+  de: ["Berlin", "Hamburg", "München", "Köln", "Frankfurt am Main", "Düsseldorf"],
+  czechia: ["Praha", "Brno", "Ostrava", "Plzeň"],
+  czech: ["Praha", "Brno", "Ostrava", "Plzeň"],
+  чехія: ["Praha", "Brno", "Ostrava", "Plzeň"],
+  cz: ["Praha", "Brno", "Ostrava", "Plzeň"],
+  slovakia: ["Bratislava", "Košice", "Žilina"],
+  словаччина: ["Bratislava", "Košice", "Žilina"],
+  sk: ["Bratislava", "Košice", "Žilina"]
+};
 const categoryQueries = [
-  { niche: "Легалізація / юристи", tag: '["office"="lawyer"]' },
-  { niche: "Бухгалтерія", tag: '["office"="accountant"]' },
-  { niche: "Beauty", tag: '["shop"~"beauty|hairdresser"]' },
-  { niche: "Авто", tag: '["shop"="car_repair"]' },
-  { niche: "Освіта", tag: '["amenity"="language_school"]' },
-  { niche: "Нерухомість", tag: '["office"="estate_agent"]' },
-  { niche: "Страхування", tag: '["office"="insurance"]' },
-  { niche: "Медицина", tag: '["healthcare"]' },
-  { niche: "Переклади", tag: '["office"="translator"]' }
+  { niche: "Легалізація / юристи", tags: ['["office"="lawyer"]', '["name"~"legal|legalizacja|kancelaria|pobyt|immigration|visa|адвокат|юрист",i]'] },
+  { niche: "Бухгалтерія", tags: ['["office"="accountant"]', '["name"~"accounting|księgowo|rachunk|бухгалтер|подат",i]'] },
+  { niche: "Beauty", tags: ['["shop"~"beauty|hairdresser"]', '["name"~"beauty|salon|hair|barber|nails|крас|салон",i]'] },
+  { niche: "Авто", tags: ['["shop"~"car_repair|car_parts"]', '["craft"="car_repair"]', '["name"~"auto|car|garage|mechanic|авто|шиномонтаж",i]'] },
+  { niche: "Освіта", tags: ['["amenity"="language_school"]', '["amenity"="school"]', '["name"~"school|language|kurs|школ|курси",i]'] },
+  { niche: "Нерухомість", tags: ['["office"="estate_agent"]', '["name"~"real estate|nieruchomo|property|нерухом",i]'] },
+  { niche: "Страхування", tags: ['["office"="insurance"]', '["name"~"insurance|ubezpiec|страх",i]'] },
+  { niche: "Медицина", tags: ['["healthcare"]', '["amenity"~"clinic|doctors|dentist"]', '["name"~"clinic|doctor|medical|dent|мед|клініка",i]'] },
+  { niche: "Переклади", tags: ['["office"="translator"]', '["name"~"translation|tłumacz|переклад",i]'] }
 ];
 const nicheAliases: Record<string, string[]> = {
   legal: ["Легалізація / юристи"],
   lawyer: ["Легалізація / юристи"],
   legalization: ["Легалізація / юристи"],
+  легалізація: ["Легалізація / юристи"],
+  юристи: ["Легалізація / юристи"],
+  юрист: ["Легалізація / юристи"],
   beauty: ["Beauty"],
+  бюті: ["Beauty"],
+  краса: ["Beauty"],
   accountant: ["Бухгалтерія"],
   accounting: ["Бухгалтерія"],
+  бухгалтерія: ["Бухгалтерія"],
+  бухгалтер: ["Бухгалтерія"],
   auto: ["Авто"],
   car: ["Авто"],
+  авто: ["Авто"],
   education: ["Освіта"],
   school: ["Освіта"],
+  освіта: ["Освіта"],
   realestate: ["Нерухомість"],
   estate: ["Нерухомість"],
+  нерухомість: ["Нерухомість"],
   insurance: ["Страхування"],
+  страхування: ["Страхування"],
   medical: ["Медицина"],
-  translator: ["Переклади"]
+  медицина: ["Медицина"],
+  translator: ["Переклади"],
+  переклади: ["Переклади"]
 };
 const targetKeywords = ["ukrain", "ukraiń", "ukraina", "україн", "pobyt", "legalizacja", "karta pobytu", "cudzoziem", "księgowość", "biuro rachunkowe", "beauty", "auto"];
 const candidateSettingsKey = "lead_candidates";
@@ -269,15 +299,42 @@ function mapOverpassElement(element: OverpassElement, niche: string, city: strin
   };
 }
 
-function overpassQuery(city: string, tag: string) {
+function normalizeLookup(value = "") {
+  return value.trim().toLowerCase().replace(/\s+/g, "");
+}
+
+function resolveCities(locationQuery?: string) {
+  const normalized = normalizeLookup(locationQuery);
+  if (!normalized) return defaultCities;
+  if (countryCities[normalized]) return countryCities[normalized];
+  return [cityAliases[normalized] ?? locationQuery?.trim() ?? ""].filter(Boolean);
+}
+
+function customNameTag(nicheQuery?: string) {
+  const raw = nicheQuery?.trim();
+  if (!raw) return "";
+  const terms = raw
+    .split(/[\s,/|]+/)
+    .map((term) => term.trim())
+    .filter((term) => term.length >= 3)
+    .slice(0, 4);
+  if (!terms.length) return "";
+  const escaped = terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  return `["name"~"${escaped}",i]`;
+}
+
+function overpassQuery(city: string, tags: string[]) {
+  const selectors = tags.flatMap((tag) => [
+    `  node${tag}(area.searchArea);`,
+    `  way${tag}(area.searchArea);`,
+    `  relation${tag}(area.searchArea);`
+  ]).join("\n");
   return `[out:json][timeout:18];
 area["name"="${city}"]["boundary"="administrative"]->.searchArea;
 (
-  node${tag}(area.searchArea);
-  way${tag}(area.searchArea);
-  relation${tag}(area.searchArea);
+${selectors}
 );
-out center tags 50;`;
+out center tags 80;`;
 }
 
 function duplicateKeyParts(candidate: Pick<LeadCandidate, "business_name" | "city" | "website_url" | "instagram_url" | "facebook_url" | "phone" | "email" | "osm_url">) {
@@ -392,13 +449,16 @@ export async function addCandidateToCrm(candidateId: string, priority: "Medium" 
 
 export async function findLeadCandidates(options: { limit?: number; city?: string; nicheQuery?: string } = {}) {
   const limit = options.limit ?? 30;
-  const normalizedCity = options.city ? cityAliases[options.city.toLowerCase()] ?? options.city : "";
-  const cities = normalizedCity ? [normalizedCity] : defaultCities;
-  const aliases = options.nicheQuery ? nicheAliases[options.nicheQuery.toLowerCase().replace(/\s+/g, "")] ?? [] : [];
+  const cities = resolveCities(options.city);
+  const normalizedNiche = normalizeLookup(options.nicheQuery);
+  const aliases = normalizedNiche ? nicheAliases[normalizedNiche] ?? [] : [];
   const categories = options.nicheQuery
-    ? categoryQueries.filter((item) => aliases.includes(item.niche) || `${item.niche} ${item.tag}`.toLowerCase().includes(options.nicheQuery?.toLowerCase() ?? ""))
+    ? categoryQueries.filter((item) => aliases.includes(item.niche) || `${item.niche} ${item.tags.join(" ")}`.toLowerCase().includes(options.nicheQuery?.toLowerCase() ?? ""))
     : categoryQueries;
-  const selectedCategories = categories.length ? categories : categoryQueries.slice(0, 4);
+  const fallbackTag = customNameTag(options.nicheQuery);
+  const selectedCategories = categories.length
+    ? categories
+    : [{ niche: options.nicheQuery?.trim() || "Власна ніша", tags: [fallbackTag, '["name"]'].filter(Boolean) }];
   const [leads, existingCandidates] = await Promise.all([
     supabaseRequest<LeadLookup[]>("leads", "select=id,business_name,city,website_url,instagram_url,facebook_url,phone,email"),
     readCandidateStore()
@@ -414,7 +474,7 @@ export async function findLeadCandidates(options: { limit?: number; city?: strin
         const response = await fetchWithTimeout(overpassUrl, {
           method: "POST",
           headers: { "content-type": "application/x-www-form-urlencoded" },
-          body: new URLSearchParams({ data: overpassQuery(city, category.tag) }).toString()
+          body: new URLSearchParams({ data: overpassQuery(city, category.tags) }).toString()
         }, 20_000);
         if (!response.ok) continue;
         data = (await response.json()) as OverpassResponse;

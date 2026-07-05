@@ -433,16 +433,16 @@ export async function POST(request: Request) {
 
     const lowerText = text.toLowerCase();
     if (lowerText === "/find30" || text === "🔎 /find30" || lowerText.startsWith("/find ")) {
-      await sendTelegram(chatId, "Шукаю безкоштовних кандидатів через OpenStreetMap. Це може зайняти до хвилини.");
+      await sendTelegram(chatId, "Шукаю кандидатів через OpenStreetMap. Формат: /find <ніша> <країна або місто>. Наприклад: /find Легалізація Польща");
       const parts = text.split(/\s+/).slice(1);
-      const maybeCity = parts[1];
-      const maybeNiche = parts[0];
+      const maybeLocation = parts.length > 1 ? parts[parts.length - 1] : undefined;
+      const maybeNiche = parts.length > 1 ? parts.slice(0, -1).join(" ") : parts[0];
       let candidates: LeadCandidate[] = [];
       try {
         candidates = await findLeadCandidates({
           limit: lowerText === "/find30" || text === "🔎 /find30" ? 30 : 10,
           nicheQuery: maybeNiche,
-          city: maybeCity
+          city: maybeLocation
         });
       } catch (error) {
         await sendTelegram(chatId, `Overpass зараз не відповідає або Supabase не готовий: ${escapeHtml(error instanceof Error ? error.message : "невідома помилка")}`);
@@ -461,7 +461,7 @@ export async function POST(request: Request) {
 
     const knownActions = ["/start", "/status", "/today", "/hot", "/followups", "/kpi", "⚡ Що робити зараз", "📊 Статус зараз", "📞 Дзвінки", "🔥 Кому писати", "⏰ Прострочені", "💶 Pipeline"];
     if (!knownActions.includes(text)) {
-      await sendTelegram(chatId, "Натисни <b>/find30</b>, <b>/candidates</b>, <b>⚡ Що робити зараз</b>, <b>📞 Дзвінки</b>, <b>🔥 Кому писати</b> або напиши /status.");
+      await sendTelegram(chatId, "Напиши <b>/find НІША КРАЇНА</b>, наприклад <b>/find Легалізація Польща</b>. Або натисни <b>/candidates</b>, <b>⚡ Що робити зараз</b>, <b>📞 Дзвінки</b>, <b>🔥 Кому писати</b>.");
       return Response.json({ ok: true });
     }
 
