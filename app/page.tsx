@@ -1028,7 +1028,7 @@ async function supabaseRequest<T>(
 
 function isMissingSupabaseColumn(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
-  return message.includes("PGRST204") || message.includes("schema cache") || message.includes("Could not find the");
+  return message.includes("PGRST204") || message.includes("42703") || message.includes("schema cache") || message.includes("Could not find the") || message.includes("does not exist");
 }
 
 async function fetchSupabaseSnapshot(
