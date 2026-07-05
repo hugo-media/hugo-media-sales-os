@@ -46,6 +46,7 @@ type LeadStatus =
   | "Повернутись пізніше";
 
 type ThemeMode = "light" | "dark";
+type LeadPriority = "Low" | "Medium" | "High" | "Hot";
 
 type Lead = {
   id: string;
@@ -62,12 +63,15 @@ type Lead = {
   weak_point: string;
   offer_angle: string;
   status: LeadStatus;
+  priority: LeadPriority;
   package_interest: string;
   deal_value: number;
   first_contact_date: string;
   last_contact_date: string;
   follow_up_date: string;
   next_action: string;
+  last_message: string;
+  proposal_sent_date: string;
   source: string;
   notes: string;
   created_at: string;
@@ -182,10 +186,11 @@ type CrmSnapshot = {
   settings: AppSettings;
 };
 
-type LeadRow = Omit<Lead, "first_contact_date" | "last_contact_date" | "follow_up_date"> & {
+type LeadRow = Omit<Lead, "first_contact_date" | "last_contact_date" | "follow_up_date" | "proposal_sent_date"> & {
   first_contact_date: string | null;
   last_contact_date: string | null;
   follow_up_date: string | null;
+  proposal_sent_date: string | null;
 };
 type ContentRow = Omit<ContentItem, "CTA"> & { cta: string };
 type SettingRow = { key: string; value: AppSettings };
@@ -236,6 +241,7 @@ const nextActionPresets = [
   "Попросити дату зйомки",
   "Закрити якщо не відповість"
 ];
+const leadPriorities: LeadPriority[] = ["Low", "Medium", "High", "Hot"];
 
 const templateCategories = [
   "First outreach",
@@ -391,6 +397,9 @@ const setLossReasonInNotes = (notes: string, reason: string) => {
 
 const getLeadScore = (lead: Lead, today: string) => {
   let score = 20;
+  if (lead.priority === "Hot") score += 25;
+  else if (lead.priority === "High") score += 15;
+  else if (lead.priority === "Medium") score += 5;
   const value = numericValue(lead.deal_value);
   if (value >= 2000) score += 24;
   else if (value >= 1000) score += 18;
@@ -444,6 +453,7 @@ const buildPersonalizedMessage = (lead: Lead) => {
 };
 
 const csvEscape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+const normalizeLeadPriority = (value?: string): LeadPriority => (leadPriorities.includes(value as LeadPriority) ? value as LeadPriority : "Medium");
 
 const exportLeadsCsv = (leads: Lead[]) => {
   const headers = [
@@ -460,6 +470,9 @@ const exportLeadsCsv = (leads: Lead[]) => {
     "follow_up_date",
     "next_action",
     "source",
+    "priority",
+    "last_message",
+    "proposal_sent_date",
     "notes"
   ];
   const rows = leads.map((lead) => [
@@ -476,6 +489,9 @@ const exportLeadsCsv = (leads: Lead[]) => {
     lead.follow_up_date,
     lead.next_action,
     lead.source,
+    lead.priority,
+    lead.last_message,
+    lead.proposal_sent_date,
     lead.notes
   ]);
   const csv = [headers, ...rows].map((row) => row.map(csvEscape).join(",")).join("\n");
@@ -495,7 +511,7 @@ const parseLeadImport = (text: string, today: string, packages: PackageItem[]) =
     .map((row) => row.trim())
     .filter(Boolean)
     .flatMap((row) => {
-      const [businessName, niche, city, instagramUrl, contactName, packageName, value, source] = row.split(";").map((cell) => cell.trim());
+      const [businessName, niche, city, instagramUrl, contactName, packageName, value, source, priority, lastMessage, proposalDate] = row.split(";").map((cell) => cell.trim());
       if (!businessName) {
         skipped += 1;
         return [];
@@ -516,12 +532,15 @@ const parseLeadImport = (text: string, today: string, packages: PackageItem[]) =
         weak_point: "",
         offer_angle: "",
         status: "Новий" as LeadStatus,
+        priority: normalizeLeadPriority(priority),
         package_interest: packageName || selectedPackage?.name || "",
         deal_value: Number(value) || selectedPackage?.value || 0,
         first_contact_date: today,
         last_contact_date: today,
         follow_up_date: "",
         next_action: "Написати перше повідомлення",
+        last_message: lastMessage || "",
+        proposal_sent_date: normalizeDateInput(proposalDate),
         source: source || (instagramUrl ? "Instagram" : ""),
         notes: "",
         created_at: today,
@@ -547,12 +566,15 @@ const seedLeads: Lead[] = [
     weak_point: "Багато експертності, але мало людського обличчя бренду.",
     offer_angle: "Показати засновницю як провідника у складних питаннях легалізації.",
     status: "КП відправлено",
+    priority: "Hot",
     package_interest: "Місячна медіасерія",
     deal_value: 1000,
     first_contact_date: "2026-06-17",
     last_contact_date: "2026-06-20",
     follow_up_date: seedToday,
     next_action: "Follow-up після КП",
+    last_message: "Надіслано коротку пропозицію по місячній медіасерії.",
+    proposal_sent_date: "2026-06-20",
     source: "Instagram",
     notes: "Попросили коротко показати формати зйомки.",
     created_at: "2026-06-17",
@@ -573,12 +595,15 @@ const seedLeads: Lead[] = [
     weak_point: "Пости виглядають як прайс, мало довіри до майстра.",
     offer_angle: "Міні-історія про шлях майстрині та клієнтський досвід.",
     status: "Відповів",
+    priority: "High",
     package_interest: "Медійний візит Hugo",
     deal_value: 300,
     first_contact_date: "2026-06-19",
     last_contact_date: seedToday,
     follow_up_date: seedTomorrow,
     next_action: "Скинути деталі пакета",
+    last_message: "",
+    proposal_sent_date: "",
     source: "Рекомендація",
     notes: "Теплий лід, цікавиться коротким форматом.",
     created_at: "2026-06-19",
@@ -599,12 +624,15 @@ const seedLeads: Lead[] = [
     weak_point: "Сервіс сильний, але комунікація без чіткої позиції.",
     offer_angle: "Показати чесний сервіс для українців у Польщі.",
     status: "Думає",
+    priority: "Medium",
     package_interest: "Повна медійна присутність",
     deal_value: 2000,
     first_contact_date: "2026-06-15",
     last_contact_date: "2026-06-19",
     follow_up_date: "2026-06-24",
     next_action: "Уточнити бюджет і таймінг",
+    last_message: "",
+    proposal_sent_date: "",
     source: "Facebook",
     notes: "Потрібно дотиснути через цінність довіри.",
     created_at: "2026-06-15",
@@ -918,17 +946,21 @@ function leadToRow(lead: Lead): LeadRow {
     deal_value: numericValue(lead.deal_value),
     first_contact_date: emptyDateToNull(lead.first_contact_date),
     last_contact_date: emptyDateToNull(lead.last_contact_date),
-    follow_up_date: emptyDateToNull(lead.follow_up_date)
+    follow_up_date: emptyDateToNull(lead.follow_up_date),
+    proposal_sent_date: emptyDateToNull(lead.proposal_sent_date)
   };
 }
 
 function rowToLead(lead: LeadRow): Lead {
   return {
     ...lead,
+    priority: normalizeLeadPriority(lead.priority),
+    last_message: lead.last_message ?? "",
     deal_value: numericValue(lead.deal_value),
     first_contact_date: nullDateToEmpty(lead.first_contact_date),
     last_contact_date: nullDateToEmpty(lead.last_contact_date),
-    follow_up_date: nullDateToEmpty(lead.follow_up_date)
+    follow_up_date: nullDateToEmpty(lead.follow_up_date),
+    proposal_sent_date: nullDateToEmpty(lead.proposal_sent_date)
   };
 }
 
@@ -1122,7 +1154,7 @@ export default function SalesOs() {
     async function boot() {
       const localSnapshot = readLocalSnapshot();
       const applySnapshot = (snapshot: CrmSnapshot) => {
-        setLeads(snapshot.leads);
+        setLeads(snapshot.leads.map((lead) => normalizeLeadDates(lead as Lead)));
         setTasks(snapshot.tasks);
         setContentItems(snapshot.contentItems);
         setTemplates(snapshot.templates);
@@ -1248,9 +1280,12 @@ export default function SalesOs() {
   function normalizeLeadDates(lead: Lead): Lead {
     return {
       ...lead,
+      priority: normalizeLeadPriority(lead.priority),
+      last_message: lead.last_message ?? "",
       first_contact_date: normalizeDateInput(lead.first_contact_date) || today,
       last_contact_date: normalizeDateInput(lead.last_contact_date) || today,
-      follow_up_date: normalizeDateInput(lead.follow_up_date)
+      follow_up_date: normalizeDateInput(lead.follow_up_date),
+      proposal_sent_date: normalizeDateInput(lead.proposal_sent_date)
     };
   }
 
@@ -1264,6 +1299,12 @@ export default function SalesOs() {
     }
     if ("follow_up_date" in nextPatch) {
       nextPatch.follow_up_date = normalizeDateInput(nextPatch.follow_up_date);
+    }
+    if ("proposal_sent_date" in nextPatch) {
+      nextPatch.proposal_sent_date = normalizeDateInput(nextPatch.proposal_sent_date);
+    }
+    if ("priority" in nextPatch) {
+      nextPatch.priority = normalizeLeadPriority(nextPatch.priority);
     }
     return nextPatch;
   }
@@ -1356,6 +1397,10 @@ export default function SalesOs() {
       status,
       last_contact_date: baseDate,
       follow_up_date: nextFollowUpDate,
+      proposal_sent_date:
+        (status === "КП" || status === "КП відправлено") && !currentLead.proposal_sent_date
+          ? baseDate
+          : currentLead.proposal_sent_date,
       next_action:
         status === "Виграно"
           ? "Підготувати зйомку / бриф"
@@ -1718,6 +1763,8 @@ export default function SalesOs() {
           onEdit={() => { setEditingLead(selectedLead); setIsLeadFormOpen(true); }}
           onDelete={() => window.confirm("Видалити лід?") && deleteLead(selectedLead.id)}
           onCloseLead={() => closeLead(selectedLead.id)}
+          onPatch={(patch) => patchLead(selectedLead.id, patch)}
+          onStatus={(status) => updateLeadStatus(selectedLead.id, status)}
           onTask={() =>
             setTasks((current) => [
               newTask(today, {
@@ -1786,6 +1833,17 @@ function LeadScorePill({ lead, today }: { lead: Lead; today: string }) {
   );
 }
 
+function LeadPriorityPill({ priority }: { priority?: LeadPriority }) {
+  const normalized = normalizeLeadPriority(priority);
+  const classes: Record<LeadPriority, string> = {
+    Low: "border-slate-400/30 text-slate-300",
+    Medium: "border-blue/30 bg-blue/10 text-sky-100",
+    High: "border-amber/40 bg-amber/10 text-amber-100",
+    Hot: "border-red-400/40 bg-red-500/10 text-red-100"
+  };
+  return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${classes[normalized]}`}>{normalized}</span>;
+}
+
 function TodayPage({
   today,
   leads,
@@ -1832,7 +1890,9 @@ function TodayPage({
   const firstPriorityLead = overdueLeads[0] ?? actionQueue[0] ?? null;
 
   async function copyLeadMessage(lead: Lead) {
-    await navigator.clipboard.writeText(buildPersonalizedMessage(lead));
+    const message = buildPersonalizedMessage(lead);
+    await navigator.clipboard.writeText(message);
+    onPatch(lead.id, { last_message: message, last_contact_date: today });
     onCopied();
   }
 
@@ -1890,6 +1950,7 @@ function TodayPage({
                       {isOverdue ? <span className="rounded-full border border-red-400/40 px-2 py-1 text-xs text-red-200">прострочено</span> : null}
                       {isDueToday ? <span className="rounded-full border border-amber/40 px-2 py-1 text-xs text-amber-100">сьогодні</span> : null}
                       <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${temperature.className}`}>{temperature.label} · {score}</span>
+                      <LeadPriorityPill priority={lead.priority} />
                       <Badge status={lead.status} />
                     </div>
                   </div>
@@ -2302,6 +2363,7 @@ function LeadsPage(props: {
               </button>
               <div className="flex flex-col items-end gap-2">
                 <Badge status={lead.status} />
+                <LeadPriorityPill priority={lead.priority} />
                 <LeadScorePill lead={lead} today={props.today} />
               </div>
             </div>
@@ -2313,6 +2375,10 @@ function LeadsPage(props: {
               <div className="rounded-md border border-line bg-ink/50 p-2">
                 <div className="text-slate-500">Сума</div>
                 <div className="mt-1 font-semibold">{moneyAmount(numericValue(lead.deal_value))}</div>
+              </div>
+              <div className="rounded-md border border-line bg-ink/50 p-2">
+                <div className="text-slate-500">КП</div>
+                <div className="mt-1 font-semibold">{lead.proposal_sent_date || "—"}</div>
               </div>
             </div>
             <div className="mt-3 grid gap-2">
@@ -2334,10 +2400,11 @@ function LeadsPage(props: {
       </div>
       <div className="hidden lg:block">
         <DataTable
-          headers={["Бізнес", "Score", "Ніша", "Місто", "Контакт", "Статус", "Пакет", "Сума", "Follow-up", "Наступна дія", "Дії"]}
+          headers={["Бізнес", "Score", "Priority", "Ніша", "Місто", "Контакт", "Статус", "Пакет", "Сума", "Follow-up", "КП", "Наступна дія", "Дії"]}
           rows={props.leads.map((lead) => [
             <button key="name" className="font-semibold text-blue" onClick={() => props.onOpen(lead.id)}>{lead.business_name}</button>,
             <LeadScorePill key="score" lead={lead} today={props.today} />,
+            <LeadPriorityPill key="priority" priority={lead.priority} />,
             lead.niche,
             lead.city,
             lead.contact_name,
@@ -2345,6 +2412,7 @@ function LeadsPage(props: {
             lead.package_interest,
             moneyAmount(numericValue(lead.deal_value)),
             <Input key="followup" label="" type="date" value={lead.follow_up_date} onChange={(value) => props.onPatch(lead.id, { follow_up_date: value })} />,
+            lead.proposal_sent_date || "—",
             <span key="action" className="block min-w-56 whitespace-normal leading-6">{lead.next_action || "—"}</span>,
             <div key="actions" className="flex flex-wrap gap-1">
               <button className="rounded-md border border-line px-2 py-1 text-xs font-semibold text-slate-200 hover:bg-white hover:text-ink" onClick={() => props.onOpen(lead.id)}>Відкрити</button>
@@ -2362,7 +2430,7 @@ function LeadsPage(props: {
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-2xl font-black">Імпорт лідів</h2>
-                <p className="mt-1 text-sm text-slate-400">Формат: Business; niche; city; Instagram; contact; package; value; source</p>
+                <p className="mt-1 text-sm text-slate-400">Формат: Business; niche; city; Instagram; contact; package; value; source; priority; last message; proposal date</p>
               </div>
               <IconButton label="Закрити" onClick={() => setIsImportOpen(false)}><X className="h-4 w-4" /></IconButton>
             </div>
@@ -2417,7 +2485,9 @@ function PipelinePage({
   }
 
   async function copyLeadMessage(lead: Lead) {
-    await navigator.clipboard.writeText(buildPersonalizedMessage(lead));
+    const message = buildPersonalizedMessage(lead);
+    await navigator.clipboard.writeText(message);
+    onPatch(lead.id, { last_message: message, last_contact_date: today });
     onCopied();
   }
 
@@ -2504,9 +2574,18 @@ function PipelinePage({
                         <strong className="shrink-0 text-sm text-slate-100">{moneyAmount(numericValue(lead.deal_value))}</strong>
                       </div>
                       <div className="mt-3 flex items-center justify-between gap-2">
-                        <LeadScorePill lead={lead} today={today} />
+                        <div className="flex flex-wrap gap-2">
+                          <LeadScorePill lead={lead} today={today} />
+                          <LeadPriorityPill priority={lead.priority} />
+                        </div>
                         {getLossReason(lead) ? <span className="rounded-full border border-rose/35 px-2 py-1 text-xs text-rose-200">{getLossReason(lead)}</span> : null}
                       </div>
+                      {lead.proposal_sent_date || lead.last_message ? (
+                        <div className="mt-3 rounded-md border border-line bg-ink/35 p-2 text-xs text-slate-300">
+                          {lead.proposal_sent_date ? <div className="font-semibold text-amber-100">КП: {lead.proposal_sent_date}</div> : null}
+                          {lead.last_message ? <div className="mt-1 line-clamp-2">{lead.last_message}</div> : null}
+                        </div>
+                      ) : null}
                       {visibleLeadStatus(lead.status) === "Закриті" ? (
                         <div className="mt-3 rounded-md border border-rose/30 bg-rose/10 p-2 text-xs leading-5 text-rose-100">
                           <div className="font-bold">Чому закритий</div>
@@ -2530,6 +2609,15 @@ function PipelinePage({
                           </button>
                         </div>
                         <div className="flex flex-wrap gap-2">
+                          {(["Hot", "High", "Medium"] as LeadPriority[]).map((priority) => (
+                            <button
+                              key={priority}
+                              className="rounded-lg border border-line px-2 py-1 text-[11px] font-semibold hover:bg-white hover:text-ink"
+                              onClick={() => onPatch(lead.id, { priority })}
+                            >
+                              {priority}
+                            </button>
+                          ))}
                           {quickPipelineStatuses.map((nextStatus) => (
                             <button
                               key={nextStatus}
@@ -2650,6 +2738,8 @@ function LeadSidePanel({
   onEdit,
   onDelete,
   onCloseLead,
+  onPatch,
+  onStatus,
   onTask,
   onCopied
 }: {
@@ -2661,6 +2751,8 @@ function LeadSidePanel({
   onEdit: () => void;
   onDelete: () => void;
   onCloseLead: () => void;
+  onPatch: (patch: Partial<Lead>) => void;
+  onStatus: (status: LeadStatus) => void;
   onTask: () => void;
   onCopied: () => void;
 }) {
@@ -2688,6 +2780,7 @@ function LeadSidePanel({
           <h2 className="mt-1 text-2xl font-black">{lead.business_name}</h2>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Badge status={lead.status} />
+            <LeadPriorityPill priority={lead.priority} />
             <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${temperature.className}`}>
               <Flame className="mr-1 inline h-3 w-3" />
               {temperature.label} · {score}/100
@@ -2704,10 +2797,19 @@ function LeadSidePanel({
           <div className="grid gap-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <ReadOnlyField label="Статус" value={visibleLeadStatus(lead.status)} />
+              <ReadOnlyField label="Priority" value={normalizeLeadPriority(lead.priority)} />
               <ReadOnlyField label="Follow-up дата" value={lead.follow_up_date || "не заплановано"} />
+              <ReadOnlyField label="КП дата" value={lead.proposal_sent_date || "не відправлено"} />
               <ReadOnlyField label="Останній контакт" value={lead.last_contact_date || "не вказано"} />
               <ReadOnlyField label="Наступна дія" value={lead.next_action || "не вказана"} />
             </div>
+            {lead.last_message ? (
+              <div className="rounded-lg border border-line bg-panel2 p-3">
+                <div className="mb-2 text-xs uppercase tracking-[0.12em] text-slate-500">Останнє повідомлення</div>
+                <div className="whitespace-pre-wrap text-sm leading-6 text-slate-100">{lead.last_message}</div>
+                <button className="mt-3 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-ink" onClick={() => { void navigator.clipboard?.writeText(lead.last_message); onCopied(); }}>Скопіювати останнє</button>
+              </div>
+            ) : null}
             <div className="rounded-lg border border-blue/30 bg-blue/10 p-3">
               <div className="mb-1 flex items-center gap-2 text-sm font-bold text-sky-100">
                 <Sparkles className="h-4 w-4" />
@@ -2731,12 +2833,22 @@ function LeadSidePanel({
           </div>
           <div className="rounded-lg border border-line bg-panel2 p-3 text-sm leading-6 text-slate-200">{aiMessage}</div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <button className="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-ink" onClick={() => { void navigator.clipboard?.writeText(aiMessage); onCopied(); }}>Скопіювати</button>
+            <button className="rounded-lg bg-white px-3 py-2 text-sm font-semibold text-ink" onClick={() => { void navigator.clipboard?.writeText(aiMessage); onPatch({ last_message: aiMessage, last_contact_date: today }); onCopied(); }}>Скопіювати</button>
           </div>
         </Card>
 
         <Card>
           <SectionTitle title="Контакти й угода" />
+          <div className="mb-3 flex flex-wrap gap-2">
+            {leadPriorities.map((priority) => (
+              <button key={priority} className="rounded-lg border border-line px-3 py-2 text-sm font-semibold hover:bg-white hover:text-ink" onClick={() => onPatch({ priority })}>
+                {priority}
+              </button>
+            ))}
+            <button className="rounded-lg border border-amber/40 px-3 py-2 text-sm font-semibold text-amber-100 hover:bg-white hover:text-ink" onClick={() => onStatus("КП")}>
+              Позначити КП сьогодні
+            </button>
+          </div>
           <div className="grid gap-2 sm:grid-cols-2">
             {contactRows.map(([label, value]) => (
               <div key={label} className="rounded-lg border border-line bg-panel2 p-3">
@@ -3531,9 +3643,11 @@ function TemplatesPage({
 function AnalyticsPage({ leads }: { leads: Lead[] }) {
   const today = getWarsawDateKey();
   const activeLeads = leads.filter((lead) => !["Закриті", "Виграно"].includes(visibleLeadStatus(lead.status)));
+  const monthKey = today.slice(0, 7);
   const written = leads.filter((lead) => ["Контакт", "Без відповіді", "Дзвінок", "КП", "На паузі", "Виграно"].includes(visibleLeadStatus(lead.status))).length;
   const replied = leads.filter((lead) => ["Контакт", "Дзвінок", "КП", "На паузі", "Виграно"].includes(visibleLeadStatus(lead.status))).length;
-  const proposals = leads.filter((lead) => visibleLeadStatus(lead.status) === "КП").length;
+  const proposalLeads = leads.filter((lead) => visibleLeadStatus(lead.status) === "КП" || Boolean(lead.proposal_sent_date));
+  const proposals = proposalLeads.length;
   const calls = leads.filter((lead) => visibleLeadStatus(lead.status) === "Дзвінок").length;
   const won = leads.filter((lead) => lead.status === "Виграно").length;
   const closed = leads.filter((lead) => visibleLeadStatus(lead.status) === "Закриті").length;
@@ -3545,7 +3659,16 @@ function AnalyticsPage({ leads }: { leads: Lead[] }) {
   const todayFollowUps = activeLeads.filter((lead) => lead.follow_up_date === today).length;
   const withoutNextAction = activeLeads.filter((lead) => !lead.next_action.trim()).length;
   const withoutFollowUp = activeLeads.filter((lead) => !lead.follow_up_date).length;
+  const proposalsThisMonth = proposalLeads.filter((lead) => lead.proposal_sent_date?.startsWith(monthKey)).length;
+  const proposalsWithoutFollowUp = proposalLeads.filter((lead) => !lead.follow_up_date && !isLeadClosed(lead)).length;
+  const averageProposalValue = proposalLeads.length ? Math.round(proposalLeads.reduce((sum, lead) => sum + numericValue(lead.deal_value), 0) / proposalLeads.length) : 0;
+  const hotLeads = activeLeads.filter((lead) => lead.priority === "Hot");
+  const highLeads = activeLeads.filter((lead) => lead.priority === "High");
+  const hotHighPipeline = activeLeads.filter((lead) => ["Hot", "High"].includes(lead.priority)).reduce((sum, lead) => sum + numericValue(lead.deal_value), 0);
+  const hotWithoutFollowUp = hotLeads.filter((lead) => !lead.follow_up_date).length;
+  const hotWithoutNextAction = hotLeads.filter((lead) => !lead.next_action.trim()).length;
   const byStatus = statuses.map((status) => ({ label: status, count: leads.filter((lead) => visibleLeadStatus(lead.status) === status).length }));
+  const byPriority = leadPriorities.map((priority) => ({ label: priority, count: leads.filter((lead) => normalizeLeadPriority(lead.priority) === priority).length }));
   const byNiche = niches.map((niche) => ({ label: niche, count: leads.filter((lead) => lead.niche === niche).length })).filter((item) => item.count > 0);
   const bySource = Array.from(
     leads.reduce((map, lead) => {
@@ -3592,7 +3715,12 @@ function AnalyticsPage({ leads }: { leads: Lead[] }) {
           ["Deals > 1000€", activeLeads.filter((lead) => numericValue(lead.deal_value) >= 1000).length],
           ["Deals > 2000€", activeLeads.filter((lead) => numericValue(lead.deal_value) >= 2000).length],
           ["Overdue follow-ups", overdueFollowUps],
-          ["No next action", withoutNextAction]
+          ["No next action", withoutNextAction],
+          ["Proposals this month", proposalsThisMonth],
+          ["Proposal avg value", moneyAmount(averageProposalValue)],
+          ["Hot leads", hotLeads.length],
+          ["High priority", highLeads.length],
+          ["Hot+High pipeline", moneyAmount(hotHighPipeline)]
         ].map(([label, value]) => (
           <Card key={label}>
             <div className="text-sm text-slate-400">{label}</div>
@@ -3607,6 +3735,39 @@ function AnalyticsPage({ leads }: { leads: Lead[] }) {
             <div key={label} className="rounded-lg border border-line bg-panel2 p-3">
               <div className="text-sm text-slate-400">{label}</div>
               <div className="mt-2 text-xl font-black">{value}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+      <Card>
+        <SectionTitle title="Proposal control" />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            ["КП всього", proposals],
+            ["КП цього місяця", proposalsThisMonth],
+            ["КП без follow-up", proposalsWithoutFollowUp],
+            ["Середній чек КП", moneyAmount(averageProposalValue)]
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-lg border border-line bg-panel2 p-3">
+              <div className="text-sm text-slate-400">{label}</div>
+              <div className="mt-2 text-2xl font-black">{value}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+      <Card>
+        <SectionTitle title="Priority control" />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {[
+            ["Hot", hotLeads.length],
+            ["High", highLeads.length],
+            ["Hot+High pipeline", moneyAmount(hotHighPipeline)],
+            ["Hot без follow-up", hotWithoutFollowUp],
+            ["Hot без next action", hotWithoutNextAction]
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-lg border border-line bg-panel2 p-3">
+              <div className="text-sm text-slate-400">{label}</div>
+              <div className="mt-2 text-2xl font-black">{value}</div>
             </div>
           ))}
         </div>
@@ -3629,6 +3790,7 @@ function AnalyticsPage({ leads }: { leads: Lead[] }) {
       </Card>
       <div className="grid gap-5 xl:grid-cols-2">
         <BarPanel title="Ліди по статусах" data={byStatus} />
+        <BarPanel title="Ліди по priority" data={byPriority} />
         <BarPanel title="Ліди по нішах" data={byNiche} />
         <BarPanel title="Джерела" data={bySource} />
         <BarPanel title="Канали" data={byChannel} />
@@ -3736,7 +3898,13 @@ function SettingsPage({ settings, onChange }: { settings: AppSettings; onChange:
 
 function LeadForm({ lead, packages, today, onClose, onSave }: { lead: Lead | null; packages: PackageItem[]; today: string; onClose: () => void; onSave: (lead: Lead) => Promise<void> | void }) {
   const [form, setForm] = useState<Lead>(
-    lead ? { ...lead, status: visibleLeadStatus(lead.status) } : {
+    lead ? {
+      ...lead,
+      status: visibleLeadStatus(lead.status),
+      priority: normalizeLeadPriority(lead.priority),
+      last_message: lead.last_message ?? "",
+      proposal_sent_date: normalizeDateInput(lead.proposal_sent_date)
+    } : {
       id: newId(),
       business_name: "",
       niche: niches[0],
@@ -3751,12 +3919,15 @@ function LeadForm({ lead, packages, today, onClose, onSave }: { lead: Lead | nul
       weak_point: "",
       offer_angle: "",
       status: "Новий",
+      priority: "Medium",
       package_interest: packages[0]?.name ?? "",
       deal_value: packages[0]?.value ?? 0,
       first_contact_date: today,
       last_contact_date: today,
       follow_up_date: "",
       next_action: "",
+      last_message: "",
+      proposal_sent_date: "",
       source: "",
       notes: "",
       created_at: today,
@@ -3786,12 +3957,14 @@ function LeadForm({ lead, packages, today, onClose, onSave }: { lead: Lead | nul
           <Input label="Instagram" value={form.instagram_url} onChange={(value) => setField("instagram_url", value)} />
           <Input label="Телефон" value={form.phone} onChange={(value) => setField("phone", value)} />
           <Select label="Статус" value={visibleLeadStatus(form.status)} onChange={(value) => setField("status", value as LeadStatus)} options={statuses} />
+          <Select label="Priority" value={normalizeLeadPriority(form.priority)} onChange={(value) => setField("priority", value as LeadPriority)} options={leadPriorities} />
           <Select label="Пакет" value={form.package_interest} onChange={(value) => {
             const selectedPackage = packages.find((pkg) => pkg.name === value);
             setForm((current) => ({ ...current, package_interest: value, deal_value: selectedPackage?.value ?? current.deal_value }));
           }} options={packages.map((pkg) => pkg.name)} />
           <Input label="Сума" value={String(form.deal_value)} onChange={(value) => setField("deal_value", Number(value) || 0)} />
           <Input label="Follow-up date" type="date" value={form.follow_up_date} onChange={(value) => setField("follow_up_date", value)} />
+          <Input label="КП дата" type="date" value={form.proposal_sent_date} onChange={(value) => setField("proposal_sent_date", value)} />
           <Textarea label="Наступна дія" value={form.next_action} onChange={(value) => setField("next_action", value)} />
         </div>
         <div className="mt-3 grid gap-3 md:grid-cols-3">
@@ -3805,6 +3978,9 @@ function LeadForm({ lead, packages, today, onClose, onSave }: { lead: Lead | nul
         <div className="mt-3">
           <QuickPick title="Next action" items={nextActionPresets} onPick={(value) => setField("next_action", value)} />
         </div>
+        <div className="mt-3">
+          <QuickPick title="Priority" items={leadPriorities} onPick={(value) => setField("priority", value as LeadPriority)} />
+        </div>
         <button
           className="mt-4 w-full rounded-lg border border-line px-4 py-3 text-sm font-semibold md:hidden"
           onClick={() => setShowMore((current) => !current)}
@@ -3817,6 +3993,7 @@ function LeadForm({ lead, packages, today, onClose, onSave }: { lead: Lead | nul
           <Input label="Email" value={form.email} onChange={(value) => setField("email", value)} />
           <Input label="Канал контакту" value={form.contact_channel} onChange={(value) => setField("contact_channel", value)} />
           <Input label="Джерело" value={form.source} onChange={(value) => setField("source", value)} />
+          <Textarea label="Останнє повідомлення" value={form.last_message} onChange={(value) => setField("last_message", value)} />
           <Textarea label="Слабке місце" value={form.weak_point} onChange={(value) => setField("weak_point", value)} />
           <Textarea label="Кут офферу" value={form.offer_angle} onChange={(value) => setField("offer_angle", value)} />
           <Textarea label="Нотатки" value={form.notes} onChange={(value) => setField("notes", value)} />

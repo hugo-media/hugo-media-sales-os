@@ -27,6 +27,15 @@ create table if not exists public.leads (
   updated_at timestamptz not null default now()
 );
 
+alter table public.leads
+add column if not exists priority text not null default 'Medium';
+
+alter table public.leads
+add column if not exists last_message text not null default '';
+
+alter table public.leads
+add column if not exists proposal_sent_date date;
+
 create table if not exists public.tasks (
   id uuid primary key default gen_random_uuid(),
   title text not null,
