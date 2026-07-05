@@ -2,10 +2,10 @@ import {
   addCandidateToCrm,
   dateKey,
   findLeadCandidates,
-  LeadCandidate,
   listCandidates,
   updateCandidateStatus
 } from "@/lib/lead-finder";
+import type { LeadCandidate } from "@/lib/lead-finder";
 
 type LeadStatus =
   | "Новий"

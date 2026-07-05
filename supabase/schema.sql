@@ -147,6 +147,8 @@ create index if not exists leads_status_idx on public.leads(status);
 create index if not exists leads_follow_up_date_idx on public.leads(follow_up_date);
 create index if not exists leads_niche_idx on public.leads(niche);
 create index if not exists leads_city_idx on public.leads(city);
+create index if not exists lead_candidates_status_idx on public.lead_candidates(status);
+create index if not exists lead_candidates_media_score_idx on public.lead_candidates(media_score);
 create index if not exists tasks_related_lead_id_idx on public.tasks(related_lead_id);
 create index if not exists tasks_due_date_idx on public.tasks(due_date);
 create index if not exists status_history_lead_id_idx on public.status_history(lead_id);
@@ -193,6 +195,7 @@ for each row execute function public.set_updated_at();
 
 grant usage on schema public to anon, authenticated;
 grant select, insert, update, delete on public.leads to anon, authenticated;
+grant select, insert, update, delete on public.lead_candidates to anon, authenticated;
 grant select, insert, update, delete on public.tasks to anon, authenticated;
 grant select, insert, update, delete on public.content_items to anon, authenticated;
 grant select, insert, update, delete on public.templates to anon, authenticated;
@@ -203,6 +206,7 @@ grant select, insert, update, delete on public.statuses to anon, authenticated;
 grant select, insert, update, delete on public.kpi_targets to anon, authenticated;
 
 alter table public.leads enable row level security;
+alter table public.lead_candidates enable row level security;
 alter table public.tasks enable row level security;
 alter table public.content_items enable row level security;
 alter table public.templates enable row level security;
@@ -214,6 +218,12 @@ alter table public.kpi_targets enable row level security;
 
 drop policy if exists "public_crm_access" on public.leads;
 create policy "public_crm_access" on public.leads
+for all to anon, authenticated
+using (true)
+with check (true);
+
+drop policy if exists "public_crm_access" on public.lead_candidates;
+create policy "public_crm_access" on public.lead_candidates
 for all to anon, authenticated
 using (true)
 with check (true);
