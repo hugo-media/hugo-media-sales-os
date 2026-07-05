@@ -182,7 +182,8 @@ const nicheAliases: Record<string, string[]> = {
   translator: ["Переклади"],
   переклади: ["Переклади"]
 };
-const targetKeywords = ["ukrain", "ukraiń", "ukraina", "україн", "pobyt", "legalizacja", "karta pobytu", "cudzoziem", "księgowość", "biuro rachunkowe", "beauty", "auto"];
+const ukrainianKeywords = ["ukrain", "ukraiń", "ukraina", "ukrainian", "україн", "украина", "українсь", "для українців", "dla ukraincow", "dla ukraińców"];
+const targetKeywords = [...ukrainianKeywords, "pobyt", "legalizacja", "karta pobytu", "cudzoziem", "księgowość", "biuro rachunkowe", "beauty", "auto"];
 const candidateSettingsKey = "lead_candidates";
 const searchQuotaSettingsKey = "lead_search_quota";
 const defaultDailySearchLimit = 15;
@@ -349,14 +350,32 @@ function textIncludesTargetKeyword(text: string) {
   return targetKeywords.some((keyword) => lower.includes(keyword));
 }
 
+function textIncludesUkrainianSignal(text: string) {
+  const lower = text.toLowerCase();
+  return ukrainianKeywords.some((keyword) => lower.includes(keyword));
+}
+
+function hasAnySocial(candidate: Pick<LeadCandidate, "instagram_url" | "facebook_url" | "tiktok_url" | "youtube_url" | "linkedin_url">) {
+  return Boolean(candidate.instagram_url || candidate.facebook_url || candidate.tiktok_url || candidate.youtube_url || candidate.linkedin_url);
+}
+
+function hasUkrainianSignal(candidate: Pick<LeadCandidate, "business_name" | "address" | "website_url" | "instagram_url" | "facebook_url" | "tiktok_url" | "youtube_url" | "linkedin_url">, evidenceText = "") {
+  return textIncludesUkrainianSignal([
+    candidate.business_name,
+    candidate.address,
+    candidate.website_url,
+    candidate.instagram_url,
+    candidate.facebook_url,
+    candidate.tiktok_url,
+    candidate.youtube_url,
+    candidate.linkedin_url,
+    evidenceText
+  ].join(" "));
+}
+
 function isDirectoryUrl(value = "") {
   const lower = value.toLowerCase();
   return [
-    "facebook.com",
-    "instagram.com",
-    "linkedin.com",
-    "youtube.com",
-    "tiktok.com",
     "panoramafirm.pl",
     "pkt.pl",
     "yelp.",
@@ -368,6 +387,11 @@ function isDirectoryUrl(value = "") {
     "11880.com",
     "trustpilot."
   ].some((host) => lower.includes(host));
+}
+
+function isSocialUrl(value = "") {
+  const lower = value.toLowerCase();
+  return ["facebook.com", "fb.com", "instagram.com", "linkedin.com", "youtube.com", "youtu.be", "tiktok.com"].some((host) => lower.includes(host));
 }
 
 function isWeakDirectoryResult(title = "", link = "") {
@@ -411,7 +435,8 @@ async function extractWebsiteSocials(websiteUrl: string) {
       facebook_url: socialUrl(html, "facebook.com") || socialUrl(html, "fb.com"),
       tiktok_url: socialUrl(html, "tiktok.com"),
       youtube_url: socialUrl(html, "youtube.com") || socialUrl(html, "youtu.be"),
-      linkedin_url: socialUrl(html, "linkedin.com")
+      linkedin_url: socialUrl(html, "linkedin.com"),
+      ukrainian_signal: textIncludesUkrainianSignal(html)
     };
   } catch {
     return {};
@@ -626,6 +651,11 @@ function mapSerperPlace(place: SerperPlace, niche: string, locationLabel: string
   const website = cleanUrl(place.website || place.link || "");
   const phone = place.phoneNumber || place.phone || "";
   if (!website && !phone && !place.reviews) return null;
+  const instagram = website.includes("instagram.com") ? website : "";
+  const facebook = website.includes("facebook.com") || website.includes("fb.com") ? website : "";
+  const tiktok = website.includes("tiktok.com") ? website : "";
+  const youtube = website.includes("youtube.com") || website.includes("youtu.be") ? website : "";
+  const linkedin = website.includes("linkedin.com") ? website : "";
   return {
     id: crypto.randomUUID(),
     business_name: businessName,
@@ -633,11 +663,11 @@ function mapSerperPlace(place: SerperPlace, niche: string, locationLabel: string
     city: locationLabel,
     address: place.address || locationLabel,
     website_url: website,
-    instagram_url: "",
-    facebook_url: "",
-    tiktok_url: "",
-    youtube_url: "",
-    linkedin_url: "",
+    instagram_url: instagram,
+    facebook_url: facebook,
+    tiktok_url: tiktok,
+    youtube_url: youtube,
+    linkedin_url: linkedin,
     phone,
     email: "",
     osm_url: `https://www.google.com/search?q=${encodeURIComponent(`${businessName} ${locationLabel}`)}`,
@@ -652,7 +682,12 @@ function mapSerperOrganic(result: SerperOrganic, niche: string, locationLabel: s
   const businessName = result.title?.replace(/\s[-|].*$/, "").trim() || "";
   const website = cleanUrl(result.link || "");
   if (!businessName || businessName.length < 3 || !website) return null;
-  if (isDirectoryUrl(website) || isWeakDirectoryResult(result.title, website)) return null;
+  if (!isSocialUrl(website) && (isDirectoryUrl(website) || isWeakDirectoryResult(result.title, website))) return null;
+  const instagram = website.includes("instagram.com") ? website : "";
+  const facebook = website.includes("facebook.com") || website.includes("fb.com") ? website : "";
+  const tiktok = website.includes("tiktok.com") ? website : "";
+  const youtube = website.includes("youtube.com") || website.includes("youtu.be") ? website : "";
+  const linkedin = website.includes("linkedin.com") ? website : "";
   return {
     id: crypto.randomUUID(),
     business_name: businessName,
@@ -660,11 +695,11 @@ function mapSerperOrganic(result: SerperOrganic, niche: string, locationLabel: s
     city: locationLabel,
     address: result.snippet || locationLabel,
     website_url: website,
-    instagram_url: "",
-    facebook_url: "",
-    tiktok_url: "",
-    youtube_url: "",
-    linkedin_url: "",
+    instagram_url: instagram,
+    facebook_url: facebook,
+    tiktok_url: tiktok,
+    youtube_url: youtube,
+    linkedin_url: linkedin,
     phone: "",
     email: "",
     osm_url: `https://www.google.com/search?q=${encodeURIComponent(`${businessName} ${locationLabel}`)}`,
@@ -687,7 +722,7 @@ async function findSerperCandidates(options: {
   const country = resolveSearchCountry(options.locationQuery);
   const category = options.categories[0];
   const terms = serperTerms(category.niche, options.nicheQuery);
-  const query = `${terms.join(" OR ")} ${country.label}`;
+  const query = `(${terms.join(" OR ")}) (ukrainian OR ukraińska OR ukraińcy OR українська OR українці) ${country.label}`;
   const searchBody = { q: query, gl: country.gl, hl: "uk", num: Math.min(10, options.limit) };
   const placesData = await fetchSerper("places", searchBody);
   const places = [...(placesData.places ?? []), ...(placesData.localResults ?? [])];
@@ -705,7 +740,10 @@ async function findSerperCandidates(options: {
       youtube_url: socials.youtube_url || "",
       linkedin_url: socials.linkedin_url || ""
     };
-    const score = qualityScore(candidateBase, `${place.title ?? ""} ${place.address ?? ""} ${query}`, place.rating, place.reviews);
+    const evidenceText = `${place.title ?? ""} ${place.address ?? ""} ${socials.ukrainian_signal ? "ukrainian" : ""}`;
+    if (!hasAnySocial(candidateBase)) continue;
+    if (!hasUkrainianSignal(candidateBase, evidenceText)) continue;
+    const score = qualityScore(candidateBase, evidenceText, place.rating, place.reviews);
     const candidate: LeadCandidate = { ...candidateBase, ...score };
     if (candidate.media_score < 45) continue;
     if (hasDuplicate(candidate, options.leads, [...options.existingCandidates, ...options.found])) continue;
@@ -719,16 +757,19 @@ async function findSerperCandidates(options: {
     if (options.found.length >= options.limit) return;
     const base = mapSerperOrganic(result, category.niche, country.label);
     if (!base) continue;
-    const socials = await extractWebsiteSocials(base.website_url);
+    const socials = base.website_url && !isDirectoryUrl(base.website_url) ? await extractWebsiteSocials(base.website_url) : {};
     const candidateBase = {
       ...base,
-      instagram_url: socials.instagram_url || "",
-      facebook_url: socials.facebook_url || "",
-      tiktok_url: socials.tiktok_url || "",
-      youtube_url: socials.youtube_url || "",
-      linkedin_url: socials.linkedin_url || ""
+      instagram_url: base.instagram_url || socials.instagram_url || "",
+      facebook_url: base.facebook_url || socials.facebook_url || "",
+      tiktok_url: base.tiktok_url || socials.tiktok_url || "",
+      youtube_url: base.youtube_url || socials.youtube_url || "",
+      linkedin_url: base.linkedin_url || socials.linkedin_url || ""
     };
-    const score = qualityScore(candidateBase, `${result.title ?? ""} ${result.snippet ?? ""} ${query}`);
+    const evidenceText = `${result.title ?? ""} ${result.snippet ?? ""} ${socials.ukrainian_signal ? "ukrainian" : ""}`;
+    if (!hasAnySocial(candidateBase)) continue;
+    if (!hasUkrainianSignal(candidateBase, evidenceText)) continue;
+    const score = qualityScore(candidateBase, evidenceText);
     const candidate: LeadCandidate = { ...candidateBase, ...score };
     if (candidate.media_score < 45) continue;
     if (hasDuplicate(candidate, options.leads, [...options.existingCandidates, ...options.found])) continue;
