@@ -225,15 +225,27 @@ const niches = [
   "Фінанси"
 ];
 
+const quickCities = ["Варшава", "Краків", "Вроцлав", "Познань", "Гданськ", "Лодзь"];
+const quickSources = ["Instagram", "TikTok", "Facebook", "Google Maps", "Рекомендація", "Telegram"];
+const nextActionPresets = [
+  "Написати перше повідомлення",
+  "Скинути деталі пакета",
+  "Зробити follow-up після КП",
+  "Уточнити бюджет",
+  "Запропонувати дзвінок",
+  "Попросити дату зйомки",
+  "Закрити якщо не відповість"
+];
+
 const templateCategories = [
-  "first outreach",
-  "follow-up",
-  "send details",
-  "price objection",
-  "proposal",
-  "post",
-  "comment",
-  "call script"
+  "First outreach",
+  "Follow-up",
+  "Objection",
+  "Proposal",
+  "Call",
+  "Partnership",
+  "Post",
+  "Comment"
 ];
 
 const defaultSettings: AppSettings = {
@@ -431,6 +443,94 @@ const buildPersonalizedMessage = (lead: Lead) => {
   return `Вітаю${name}! Я Hugo з Hugo Media. Побачив ${lead.business_name} і думаю, що тут можна ${angle}.${weakPoint} Можу запропонувати короткий медійний формат, який підсилить довіру до вас у ніші "${lead.niche}".`;
 };
 
+const csvEscape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+
+const exportLeadsCsv = (leads: Lead[]) => {
+  const headers = [
+    "business_name",
+    "niche",
+    "city",
+    "contact_name",
+    "instagram_url",
+    "phone",
+    "email",
+    "status",
+    "package_interest",
+    "deal_value",
+    "follow_up_date",
+    "next_action",
+    "source",
+    "notes"
+  ];
+  const rows = leads.map((lead) => [
+    lead.business_name,
+    lead.niche,
+    lead.city,
+    lead.contact_name,
+    lead.instagram_url,
+    lead.phone,
+    lead.email,
+    visibleLeadStatus(lead.status),
+    lead.package_interest,
+    lead.deal_value,
+    lead.follow_up_date,
+    lead.next_action,
+    lead.source,
+    lead.notes
+  ]);
+  const csv = [headers, ...rows].map((row) => row.map(csvEscape).join(",")).join("\n");
+  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `hugo-media-leads-${getWarsawDateKey()}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+};
+
+const parseLeadImport = (text: string, today: string, packages: PackageItem[]) => {
+  let skipped = 0;
+  const leads = text
+    .split(/\r?\n/)
+    .map((row) => row.trim())
+    .filter(Boolean)
+    .flatMap((row) => {
+      const [businessName, niche, city, instagramUrl, contactName, packageName, value, source] = row.split(";").map((cell) => cell.trim());
+      if (!businessName) {
+        skipped += 1;
+        return [];
+      }
+      const selectedPackage = packages.find((pkg) => pkg.name === packageName);
+      return [{
+        id: newId(),
+        business_name: businessName,
+        niche: niche || "Інше",
+        city: city || "",
+        contact_name: contactName || "",
+        instagram_url: instagramUrl || "",
+        facebook_url: "",
+        website_url: "",
+        phone: "",
+        email: "",
+        contact_channel: instagramUrl ? "Instagram" : "",
+        weak_point: "",
+        offer_angle: "",
+        status: "Новий" as LeadStatus,
+        package_interest: packageName || selectedPackage?.name || "",
+        deal_value: Number(value) || selectedPackage?.value || 0,
+        first_contact_date: today,
+        last_contact_date: today,
+        follow_up_date: "",
+        next_action: "Написати перше повідомлення",
+        source: source || (instagramUrl ? "Instagram" : ""),
+        notes: "",
+        created_at: today,
+        updated_at: today
+      }];
+    });
+  return { leads, skipped };
+};
+
 const seedLeads: Lead[] = [
   {
     id: leadOneId,
@@ -603,8 +703,62 @@ const seedTemplates: Template[] = [
   {
     id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
     title: "Відповідь на дорого",
-    category: "Відповідь “дорого”",
+    category: "Objection",
     body: "Розумію. Тут оплата не за пост, а за медійну довіру: підготовка, зйомка, подача, історія і матеріали, які бізнес може використовувати далі."
+  },
+  {
+    id: "10101010-1010-4010-8010-101010101010",
+    title: "Легалізація: перший контакт",
+    category: "First outreach",
+    body: "Вітаю! Я Hugo з Hugo Media. Побачив вашу роботу в легалізації і думаю, що її можна показати не як чергову послугу, а як експертну систему довіри для українців у Польщі. Можу запропонувати короткий медійний формат про вас і кейси клієнтів."
+  },
+  {
+    id: "11101010-1010-4010-8010-101010101010",
+    title: "Beauty: перший контакт",
+    category: "First outreach",
+    body: "Вітаю! Побачив ваш beauty-проєкт. Думаю, тут добре спрацює не просто реклама послуг, а жива історія майстра, підхід до клієнтів і довіра до результату. Можу показати це у короткому медійному форматі."
+  },
+  {
+    id: "12101010-1010-4010-8010-101010101010",
+    title: "Авто: перший контакт",
+    category: "First outreach",
+    body: "Вітаю! Я Hugo з Hugo Media. Побачив ваш авто-бізнес і бачу потенціал показати сервіс через довіру: хто стоїть за роботою, як ви допомагаєте клієнтам і чому до вас можна звертатись без страху."
+  },
+  {
+    id: "13101010-1010-4010-8010-101010101010",
+    title: "Follow-up без відповіді",
+    category: "Follow-up",
+    body: "Вітаю! Коротко повертаюсь до ідеї. Я пропоную не разову рекламу, а матеріал, який показує людину за бізнесом і підсилює довіру. Якщо зараз неактуально, скажіть, будь ласка, і я не буду відволікати."
+  },
+  {
+    id: "14101010-1010-4010-8010-101010101010",
+    title: "Follow-up після КП",
+    category: "Follow-up",
+    body: "Вітаю! Хотів уточнити, чи подивились пропозицію. Можу швидко підлаштувати формат під ваш бюджет або запропонувати коротший стартовий варіант."
+  },
+  {
+    id: "15101010-1010-4010-8010-101010101010",
+    title: "Немає бюджету",
+    category: "Objection",
+    body: "Розумію. Тоді можна не йти в повний пакет одразу, а почати з малого формату: одна сильна історія, яку потім можна використовувати в Instagram, Facebook і комунікації з клієнтами."
+  },
+  {
+    id: "16101010-1010-4010-8010-101010101010",
+    title: "Запропонувати дзвінок",
+    category: "Call",
+    body: "Можемо зробити короткий 10-хвилинний дзвінок: я поясню формат, задам кілька питань по бізнесу і скажу, який медійний кут бачу саме для вас."
+  },
+  {
+    id: "17101010-1010-4010-8010-101010101010",
+    title: "Після дзвінка",
+    category: "Call",
+    body: "Дякую за дзвінок. Підсумовую: бачу для вас формат через довіру, експертність і людську історію. Наступний крок — погодити пакет, дату і ключові теми для зйомки."
+  },
+  {
+    id: "18101010-1010-4010-8010-101010101010",
+    title: "Партнерський формат",
+    category: "Partnership",
+    body: "Бачу потенціал не тільки в рекламі, а в партнерському форматі: рубрика, серія матеріалів або спільна тема для аудиторії українців у Польщі. Можемо обговорити формат, який буде корисний обом сторонам."
   }
 ];
 
@@ -1369,6 +1523,11 @@ export default function SalesOs() {
     );
   }
 
+  function importLeads(nextLeads: Lead[]) {
+    setLeads((current) => [...nextLeads.map(normalizeLeadDates), ...current]);
+    setToast(`Імпортовано лідів: ${nextLeads.length}`);
+  }
+
   const pageTitle = nav.find((item) => item.id === active)?.label ?? "Дашборд";
 
   return (
@@ -1465,7 +1624,7 @@ export default function SalesOs() {
             onCopied={() => setToast("Текст скопійовано")}
           />
         ) : active === "dashboard" ? (
-          <Dashboard today={today} stats={stats} leads={leads} tasks={tasks} packages={activePackages} dailyTargets={settings.dailyTargets} onDailyTargetsChange={(dailyTargets) => setSettings((current) => ({ ...current, dailyTargets }))} onResetDailyTargets={() => setSettings((current) => ({ ...current, dailyTargets: current.dailyTargets.map((target) => ({ ...target, done: false })) }))} onOpenSettings={() => navigate("settings")} onOpenFollowups={() => navigate("followups")} onOpenPipeline={() => navigate("pipeline")} onAddLead={() => { setEditingLead(null); setIsLeadFormOpen(true); }} onDone={markTaskDone} onOpenLead={setSelectedLeadId} onStatus={updateLeadStatus} />
+          <Dashboard today={today} stats={stats} leads={leads} tasks={tasks} packages={activePackages} dailyTargets={settings.dailyTargets} monthlyRevenueTarget={settings.kpiTargets.monthly_revenue} onDailyTargetsChange={(dailyTargets) => setSettings((current) => ({ ...current, dailyTargets }))} onResetDailyTargets={() => setSettings((current) => ({ ...current, dailyTargets: current.dailyTargets.map((target) => ({ ...target, done: false })) }))} onOpenSettings={() => navigate("settings")} onOpenFollowups={() => navigate("followups")} onOpenPipeline={() => navigate("pipeline")} onAddLead={() => { setEditingLead(null); setIsLeadFormOpen(true); }} onDone={markTaskDone} onOpenLead={setSelectedLeadId} onStatus={updateLeadStatus} />
         ) : active === "leads" ? (
           <LeadsPage
             leads={filteredLeads}
@@ -1490,6 +1649,7 @@ export default function SalesOs() {
             onDuplicate={(lead) => saveLead({ ...lead, id: newId(), business_name: `${lead.business_name} копія`, created_at: today, updated_at: today })}
             onPatch={patchLead}
             onStatus={updateLeadStatus}
+            onImport={importLeads}
           />
         ) : active === "pipeline" ? (
           <PipelinePage
@@ -1505,7 +1665,7 @@ export default function SalesOs() {
         ) : active === "tasks" ? (
           <TasksPage today={today} tomorrow={tomorrow} tasks={tasks} leads={leads} onDone={markTaskDone} setTasks={setTasks} />
         ) : active === "followups" ? (
-          <FollowupsPage today={today} leads={leads} onPatch={patchLead} setTasks={setTasks} onDone={(id) => { updateLeadStatus(id, "Проаналізований"); patchLead(id, { follow_up_date: "", next_action: "" }); }} onOpen={setSelectedLeadId} />
+          <FollowupsPage today={today} leads={leads} onPatch={patchLead} setTasks={setTasks} onDone={(id) => patchLead(id, { follow_up_date: "" })} onCloseLead={closeLead} onOpen={setSelectedLeadId} />
         ) : active === "calendar" ? (
           <CalendarPage
             today={today}
@@ -1808,13 +1968,14 @@ function TodayPage({
   );
 }
 
-function Dashboard({ today, stats, leads, tasks, packages, dailyTargets, onDailyTargetsChange, onResetDailyTargets, onOpenSettings, onOpenFollowups, onOpenPipeline, onAddLead, onDone, onOpenLead, onStatus }: {
+function Dashboard({ today, stats, leads, tasks, packages, dailyTargets, monthlyRevenueTarget, onDailyTargetsChange, onResetDailyTargets, onOpenSettings, onOpenFollowups, onOpenPipeline, onAddLead, onDone, onOpenLead, onStatus }: {
   today: string;
   stats: Record<string, number>;
   leads: Lead[];
   tasks: Task[];
   packages: PackageItem[];
   dailyTargets: DailyTarget[];
+  monthlyRevenueTarget: number;
   onDailyTargetsChange: (targets: DailyTarget[]) => void;
   onResetDailyTargets: () => void;
   onOpenSettings: () => void;
@@ -1833,6 +1994,13 @@ function Dashboard({ today, stats, leads, tasks, packages, dailyTargets, onDaily
   const todayFollowUps = dueFollowUps.filter((lead) => lead.follow_up_date === today);
   const freshLeads = leads.filter((lead) => ["Новий", "Проаналізований"].includes(lead.status)).slice(0, 4);
   const activeLeads = leads.filter((lead) => !["Виграно", "Закриті"].includes(visibleLeadStatus(lead.status)));
+  const monthKey = today.slice(0, 7);
+  const wonThisMonth = leads
+    .filter((lead) => lead.status === "Виграно" && lead.updated_at.startsWith(monthKey))
+    .reduce((sum, lead) => sum + numericValue(lead.deal_value), 0);
+  const remainingTarget = Math.max(0, monthlyRevenueTarget - wonThisMonth);
+  const targetProgress = monthlyRevenueTarget ? Math.min(100, Math.round((wonThisMonth / monthlyRevenueTarget) * 100)) : 0;
+  const pipelineCoverage = remainingTarget ? Math.round((stats.pipeline / remainingTarget) * 100) : 100;
   const rankedLeads = [...activeLeads].sort((a, b) => getLeadScore(b, today) - getLeadScore(a, today));
   const focusQueue = rankedLeads
     .filter((lead) => dueFollowUps.some((item) => item.id === lead.id) || ["Новий", "Контакт", "Без відповіді", "Дзвінок", "КП", "На паузі"].includes(visibleLeadStatus(lead.status)))
@@ -1999,6 +2167,27 @@ function Dashboard({ today, stats, leads, tasks, packages, dailyTargets, onDaily
 
       <div className="grid gap-5 xl:grid-cols-[1fr_0.8fr]">
         <Card>
+          <SectionTitle title="Місячна ціль" />
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            {[
+              ["Ціль", moneyAmount(monthlyRevenueTarget)],
+              ["Виграно цього місяця", moneyAmount(wonThisMonth)],
+              ["Залишилось", moneyAmount(remainingTarget)],
+              ["Прогрес", `${targetProgress}%`],
+              ["Pipeline coverage", `${pipelineCoverage}%`]
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-lg border border-line bg-panel2 p-3">
+                <div className="text-sm text-slate-400">{label}</div>
+                <div className="mt-2 text-xl font-black">{value}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 h-2 rounded-full bg-slate-800">
+            <div className="h-full rounded-full bg-blue" style={{ width: `${targetProgress}%` }} />
+          </div>
+        </Card>
+
+        <Card>
           <SectionTitle title="Останні ліди" />
           <div className="grid gap-3 md:grid-cols-2">
             {leads.slice(0, 6).map((lead) => (
@@ -2071,9 +2260,28 @@ function LeadsPage(props: {
   onDuplicate: (lead: Lead) => void;
   onPatch: (id: string, patch: Partial<Lead>) => void;
   onStatus: (id: string, status: LeadStatus) => void;
+  onImport: (leads: Lead[]) => void;
 }) {
+  const [importText, setImportText] = useState("");
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [importResult, setImportResult] = useState("");
+
+  function runImport() {
+    const result = parseLeadImport(importText, props.today, props.packages);
+    if (result.leads.length) {
+      props.onImport(result.leads);
+      setImportText("");
+      setIsImportOpen(false);
+    }
+    setImportResult(`Додано: ${result.leads.length}. Пропущено: ${result.skipped}.`);
+  }
+
   return (
     <Card>
+      <div className="mb-4 flex flex-wrap justify-end gap-2">
+        <button className="rounded-lg border border-line px-4 py-2 text-sm font-semibold hover:bg-white hover:text-ink" onClick={() => setIsImportOpen(true)}>Імпорт лідів</button>
+        <button className="rounded-lg border border-line px-4 py-2 text-sm font-semibold hover:bg-white hover:text-ink" onClick={() => exportLeadsCsv(props.leads)}>Експорт CSV</button>
+      </div>
       <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-[1.3fr_repeat(4,1fr)]">
         <label className="relative">
           <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
@@ -2148,6 +2356,29 @@ function LeadsPage(props: {
           ])}
         />
       </div>
+      {isImportOpen ? (
+        <div className="fixed inset-0 z-40 overflow-y-auto bg-black/70 p-4">
+          <div className="mx-auto max-w-3xl rounded-lg border border-line bg-panel p-5 shadow-glow">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-2xl font-black">Імпорт лідів</h2>
+                <p className="mt-1 text-sm text-slate-400">Формат: Business; niche; city; Instagram; contact; package; value; source</p>
+              </div>
+              <IconButton label="Закрити" onClick={() => setIsImportOpen(false)}><X className="h-4 w-4" /></IconButton>
+            </div>
+            <Textarea
+              label="Рядки для імпорту"
+              value={importText}
+              onChange={setImportText}
+            />
+            {importResult ? <div className="mt-3 rounded-lg border border-line bg-panel2 px-3 py-2 text-sm text-slate-300">{importResult}</div> : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <button className="rounded-lg border border-line px-4 py-2 font-semibold" onClick={() => setIsImportOpen(false)}>Скасувати</button>
+              <button className="rounded-lg bg-white px-4 py-2 font-semibold text-ink" onClick={runImport}>Імпортувати</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </Card>
   );
 }
@@ -2573,6 +2804,7 @@ function TasksPage({ today, tomorrow, tasks, leads, onDone, setTasks }: { today:
   const [typeFilter, setTypeFilter] = useState("Усі");
   const [statusFilter, setStatusFilter] = useState("Усі");
   const [editing, setEditing] = useState<Task | null>(null);
+  const [showAllTasks, setShowAllTasks] = useState(false);
   const filtered = tasks.filter((task) => {
     return (
       !isTaskForClosedLead(task, leads) &&
@@ -2584,8 +2816,8 @@ function TasksPage({ today, tomorrow, tasks, leads, onDone, setTasks }: { today:
     ["Прострочені", filtered.filter((task) => task.due_date && task.due_date < today && !["Done", "Cancelled"].includes(task.status))],
     ["Сьогодні", filtered.filter((task) => task.due_date === today)],
     ["Завтра", filtered.filter((task) => task.due_date === tomorrow)],
-    ["Усі задачі", filtered]
-  ] as const;
+    ...(showAllTasks ? [["Усі задачі", filtered] as const] : [])
+  ] as [string, Task[]][];
 
   return (
     <div className="space-y-5">
@@ -2599,6 +2831,16 @@ function TasksPage({ today, tomorrow, tasks, leads, onDone, setTasks }: { today:
           >
             <Plus className="h-4 w-4" />
             Додати задачу
+          </button>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {(["outreach", "follow_up", "call", "proposal", "content", "shoot"] as Task["type"][]).map((type) => (
+            <button key={type} className="rounded-lg border border-line px-3 py-2 text-sm font-semibold hover:bg-white hover:text-ink" onClick={() => setEditing(newTask(today, { type, title: type === "call" ? "Дзвінок" : type === "proposal" ? "КП / пропозиція" : type === "content" ? "Контент" : type === "shoot" ? "Зйомка" : type === "follow_up" ? "Follow-up" : "Outreach" }))}>
+              {type}
+            </button>
+          ))}
+          <button className="rounded-lg border border-line px-3 py-2 text-sm font-semibold hover:bg-white hover:text-ink" onClick={() => setShowAllTasks((current) => !current)}>
+            {showAllTasks ? "Сховати всі" : "Показати всі задачі"}
           </button>
         </div>
       </Card>
@@ -2661,6 +2903,7 @@ function FollowupsPage({
   onPatch,
   setTasks,
   onDone,
+  onCloseLead,
   onOpen
 }: {
   today: string;
@@ -2668,12 +2911,20 @@ function FollowupsPage({
   onPatch: (id: string, patch: Partial<Lead>) => void;
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
   onDone: (id: string) => void;
+  onCloseLead: (id: string) => void;
   onOpen: (id: string) => void;
 }) {
   const items = leads
     .filter((lead) => lead.follow_up_date && !["Виграно", "Закриті"].includes(visibleLeadStatus(lead.status)))
     .sort((a, b) => a.follow_up_date.localeCompare(b.follow_up_date));
   const updateLead = (id: string, patch: Partial<Lead>) => onPatch(id, patch);
+  const quickDates = [
+    { label: "Сьогодні", date: today },
+    { label: "Завтра", date: addDays(today, 1) },
+    { label: "+3 дні", date: addDays(today, 3) },
+    { label: "+7 днів", date: addDays(today, 7) },
+    { label: "+30 днів", date: addDays(today, 30) }
+  ];
   return (
     <Card>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -2698,18 +2949,19 @@ function FollowupsPage({
               <Textarea label="Наступна дія" value={lead.next_action} onChange={(value) => updateLead(lead.id, { next_action: value })} />
               <Input label="Дата" type="date" value={lead.follow_up_date} onChange={(value) => updateLead(lead.id, { follow_up_date: value })} />
               <div className="flex flex-wrap gap-1">
-                {[1, 3, 7, 30].map((days) => (
-                  <button key={days} className="min-h-9 rounded-md border border-line px-3 text-xs font-semibold" onClick={() => updateLead(lead.id, { follow_up_date: addDays(lead.follow_up_date || today, days) })}>
-                    +{days}
+                {quickDates.map((item) => (
+                  <button key={item.label} className="min-h-9 rounded-md border border-line px-3 text-xs font-semibold" onClick={() => updateLead(lead.id, { follow_up_date: item.date })}>
+                    {item.label}
                   </button>
                 ))}
+                <button className="min-h-9 rounded-md border border-line px-3 text-xs font-semibold" onClick={() => updateLead(lead.id, { follow_up_date: "" })}>Очистити</button>
               </div>
             </div>
-            <div className="mt-3 flex gap-2">
+            <div className="mt-3 flex flex-wrap gap-2">
               <button className="min-h-10 flex-1 rounded-lg bg-white px-3 text-sm font-semibold text-ink" onClick={() => onOpen(lead.id)}>Відкрити</button>
               <IconButton label="Створити follow-up task" onClick={() => setTasks((current) => [newTask(today, { title: `Follow-up: ${lead.business_name}`, type: "follow_up", related_lead_id: lead.id, due_date: lead.follow_up_date || today, priority: "High" }), ...current])}><Plus className="h-4 w-4" /></IconButton>
               <IconButton label="Виконано" onClick={() => onDone(lead.id)}><Check className="h-4 w-4" /></IconButton>
-              <IconButton label="Видалити дату" onClick={() => updateLead(lead.id, { follow_up_date: "" })}><Trash2 className="h-4 w-4" /></IconButton>
+              <IconButton label="Закрити ліда" onClick={() => onCloseLead(lead.id)}><X className="h-4 w-4" /></IconButton>
             </div>
           </article>
         )) : (
@@ -2728,16 +2980,17 @@ function FollowupsPage({
               {lead.follow_up_date < today ? "Прострочено" : lead.follow_up_date === today ? "Сьогодні" : "Заплановано"}
             </span>,
             <div key="postpone" className="flex flex-wrap gap-1">
-              {[1, 3, 7, 30].map((days) => (
-                <button key={days} className="rounded-md border border-line px-2 py-1 text-xs hover:bg-white hover:text-ink" onClick={() => updateLead(lead.id, { follow_up_date: addDays(lead.follow_up_date || today, days) })}>
-                  +{days}
+              {quickDates.map((item) => (
+                <button key={item.label} className="rounded-md border border-line px-2 py-1 text-xs hover:bg-white hover:text-ink" onClick={() => updateLead(lead.id, { follow_up_date: item.date })}>
+                  {item.label}
                 </button>
               ))}
+              <button className="rounded-md border border-line px-2 py-1 text-xs hover:bg-white hover:text-ink" onClick={() => updateLead(lead.id, { follow_up_date: "" })}>Очистити</button>
             </div>,
             <div key="actions" className="flex gap-1">
               <IconButton label="Створити follow-up task" onClick={() => setTasks((current) => [newTask(today, { title: `Follow-up: ${lead.business_name}`, type: "follow_up", related_lead_id: lead.id, due_date: lead.follow_up_date || today, priority: "High" }), ...current])}><Plus className="h-4 w-4" /></IconButton>
               <IconButton label="Виконано" onClick={() => onDone(lead.id)}><Check className="h-4 w-4" /></IconButton>
-              <IconButton label="Видалити дату" onClick={() => updateLead(lead.id, { follow_up_date: "" })}><Trash2 className="h-4 w-4" /></IconButton>
+              <IconButton label="Закрити ліда" onClick={() => onCloseLead(lead.id)}><X className="h-4 w-4" /></IconButton>
             </div>
           ])}
         />
@@ -3097,6 +3350,7 @@ function CalendarPage({
 
 function ContentPage({ today, items, leads, setItems }: { today: string; items: ContentItem[]; leads: Lead[]; setItems: React.Dispatch<React.SetStateAction<ContentItem[]>> }) {
   const [editing, setEditing] = useState<ContentItem | null>(null);
+  const [platformFilter, setPlatformFilter] = useState("Усі");
   const activeNiches = Array.from(
     leads
       .filter((lead) => !["Закриті", "Виграно"].includes(visibleLeadStatus(lead.status)))
@@ -3118,18 +3372,38 @@ function ContentPage({ today, items, leads, setItems }: { today: string; items: 
       notes: "Створено з активного pipeline."
     });
   };
+  const activeLeads = leads.filter((lead) => !["Закриті", "Виграно"].includes(visibleLeadStatus(lead.status)));
+  const visibleItems = items.filter((item) => platformFilter === "Усі" || item.platform === platformFilter);
+  const createFromLead = (leadId: string) => {
+    const lead = activeLeads.find((item) => item.id === leadId);
+    if (!lead) return;
+    setEditing({
+      ...newContentItem(today),
+      topic: `Історія / довіра для: ${lead.business_name}`,
+      target_niche: lead.niche,
+      notes: `Створено з ліда: ${lead.business_name}`,
+      hook: "Люди купують не в логотипу, а в людини, якій довіряють."
+    });
+  };
 
   return (
     <Card>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <SectionTitle title="Контент-план" />
-        <button
-          className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-white px-4 font-semibold text-ink"
-          onClick={() => setEditing(newContentItem(today))}
-        >
-          <Plus className="h-4 w-4" />
-          Додати
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <Select value={platformFilter} onChange={setPlatformFilter} options={["Усі", "TikTok", "Instagram", "Facebook", "YouTube Shorts", "Telegram"]} />
+          <select className="field min-h-10 w-auto" value="" onChange={(event) => createFromLead(event.target.value)}>
+            <option value="">Створити з ліда</option>
+            {activeLeads.map((lead) => <option key={lead.id} value={lead.id}>{lead.business_name}</option>)}
+          </select>
+          <button
+            className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-white px-4 font-semibold text-ink"
+            onClick={() => setEditing(newContentItem(today))}
+          >
+            <Plus className="h-4 w-4" />
+            Додати
+          </button>
+        </div>
       </div>
 
       <div className="mb-5 rounded-lg border border-blue/30 bg-blue/10 p-4">
@@ -3150,7 +3424,7 @@ function ContentPage({ today, items, leads, setItems }: { today: string; items: 
 
       <DataTable
         headers={["Дата", "Тема", "Хук", "Ніша", "Статус", "Платформа", "Дії"]}
-        rows={items.map((item) => [
+        rows={visibleItems.map((item) => [
           item.date,
           item.topic,
           item.hook,
@@ -3205,6 +3479,8 @@ function TemplatesPage({
   onCopied: () => void;
 }) {
   const [editing, setEditing] = useState<Template | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState("Усі");
+  const visibleTemplates = templates.filter((template) => categoryFilter === "Усі" || template.category === categoryFilter);
 
   function save(template: Template) {
     setTemplates((current) => current.map((item) => (item.id === template.id ? template : item)));
@@ -3213,15 +3489,18 @@ function TemplatesPage({
 
   return (
     <div className="space-y-4">
-      <button
-        className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-white px-4 font-semibold text-ink"
-        onClick={() => setTemplates((current) => [{ id: newId(), title: "Новий шаблон", category: templateCategories[0], body: "" }, ...current])}
-      >
-        <Plus className="h-4 w-4" />
-        Створити шаблон
-      </button>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Select value={categoryFilter} onChange={setCategoryFilter} options={["Усі", ...templateCategories]} />
+        <button
+          className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-white px-4 font-semibold text-ink"
+          onClick={() => setTemplates((current) => [{ id: newId(), title: "Новий шаблон", category: templateCategories[0], body: "" }, ...current])}
+        >
+          <Plus className="h-4 w-4" />
+          Створити шаблон
+        </button>
+      </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        {templates.map((template) => (
+        {visibleTemplates.map((template) => (
           <Card key={template.id}>
             {editing?.id === template.id ? (
               <TemplateEditor template={editing} onSave={save} onCancel={() => setEditing(null)} />
@@ -3250,24 +3529,70 @@ function TemplatesPage({
 }
 
 function AnalyticsPage({ leads }: { leads: Lead[] }) {
+  const today = getWarsawDateKey();
+  const activeLeads = leads.filter((lead) => !["Закриті", "Виграно"].includes(visibleLeadStatus(lead.status)));
   const written = leads.filter((lead) => ["Контакт", "Без відповіді", "Дзвінок", "КП", "На паузі", "Виграно"].includes(visibleLeadStatus(lead.status))).length;
   const replied = leads.filter((lead) => ["Контакт", "Дзвінок", "КП", "На паузі", "Виграно"].includes(visibleLeadStatus(lead.status))).length;
   const proposals = leads.filter((lead) => visibleLeadStatus(lead.status) === "КП").length;
+  const calls = leads.filter((lead) => visibleLeadStatus(lead.status) === "Дзвінок").length;
   const won = leads.filter((lead) => lead.status === "Виграно").length;
+  const closed = leads.filter((lead) => visibleLeadStatus(lead.status) === "Закриті").length;
+  const openPipeline = activeLeads.reduce((sum, lead) => sum + numericValue(lead.deal_value), 0);
+  const wonRevenue = leads.filter((lead) => lead.status === "Виграно").reduce((sum, lead) => sum + numericValue(lead.deal_value), 0);
+  const averageDeal = leads.length ? Math.round(leads.reduce((sum, lead) => sum + numericValue(lead.deal_value), 0) / leads.length) : 0;
+  const biggestOpenDeal = [...activeLeads].sort((a, b) => numericValue(b.deal_value) - numericValue(a.deal_value))[0];
+  const overdueFollowUps = activeLeads.filter((lead) => lead.follow_up_date && lead.follow_up_date < today).length;
+  const todayFollowUps = activeLeads.filter((lead) => lead.follow_up_date === today).length;
+  const withoutNextAction = activeLeads.filter((lead) => !lead.next_action.trim()).length;
+  const withoutFollowUp = activeLeads.filter((lead) => !lead.follow_up_date).length;
   const byStatus = statuses.map((status) => ({ label: status, count: leads.filter((lead) => visibleLeadStatus(lead.status) === status).length }));
   const byNiche = niches.map((niche) => ({ label: niche, count: leads.filter((lead) => lead.niche === niche).length })).filter((item) => item.count > 0);
+  const bySource = Array.from(
+    leads.reduce((map, lead) => {
+      const key = lead.source || "Не вказано";
+      map.set(key, (map.get(key) ?? 0) + 1);
+      return map;
+    }, new Map<string, number>())
+  ).map(([label, count]) => ({ label, count }));
+  const byChannel = Array.from(
+    leads.reduce((map, lead) => {
+      const key = lead.contact_channel || "Не вказано";
+      map.set(key, (map.get(key) ?? 0) + 1);
+      return map;
+    }, new Map<string, number>())
+  ).map(([label, count]) => ({ label, count }));
+  const byPackage = Array.from(
+    leads.reduce((map, lead) => {
+      const key = lead.package_interest || "Не вказано";
+      const current = map.get(key) ?? { count: 0, value: 0 };
+      map.set(key, { count: current.count + 1, value: current.value + numericValue(lead.deal_value) });
+      return map;
+    }, new Map<string, { count: number; value: number }>())
+  ).map(([label, data]) => ({ label: `${label} · ${moneyAmount(data.value)}`, count: data.count }));
+  const funnelCards = [
+    ["Total", leads.length],
+    ["Contacted", written],
+    ["Replied", replied],
+    ["Proposals", proposals],
+    ["Calls", calls],
+    ["Won", won],
+    ["Closed", closed],
+    ["Written → reply", written ? `${Math.round((replied / written) * 100)}%` : "0%"],
+    ["Reply → proposal", replied ? `${Math.round((proposals / replied) * 100)}%` : "0%"],
+    ["Proposal → won", proposals ? `${Math.round((won / proposals) * 100)}%` : "0%"]
+  ];
   return (
     <div className="space-y-5">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          ["Лідів за тиждень", leads.length],
-          ["Написано", written],
-          ["Відповідей", replied],
-          ["КП", proposals],
-          ["Виграно", won],
-          ["Закриті", leads.filter((lead) => visibleLeadStatus(lead.status) === "Закриті").length],
-          ["Потенційний дохід", moneyAmount(leads.reduce((sum, lead) => sum + numericValue(lead.deal_value), 0))],
-          ["Конверсія написав → відповів", written ? `${Math.round((replied / written) * 100)}%` : "0%"]
+          ["Open pipeline", moneyAmount(openPipeline)],
+          ["Won revenue", moneyAmount(wonRevenue)],
+          ["Average deal", moneyAmount(averageDeal)],
+          ["Biggest open deal", biggestOpenDeal ? `${biggestOpenDeal.business_name} · ${moneyAmount(numericValue(biggestOpenDeal.deal_value))}` : "—"],
+          ["Deals > 1000€", activeLeads.filter((lead) => numericValue(lead.deal_value) >= 1000).length],
+          ["Deals > 2000€", activeLeads.filter((lead) => numericValue(lead.deal_value) >= 2000).length],
+          ["Overdue follow-ups", overdueFollowUps],
+          ["No next action", withoutNextAction]
         ].map(([label, value]) => (
           <Card key={label}>
             <div className="text-sm text-slate-400">{label}</div>
@@ -3275,9 +3600,39 @@ function AnalyticsPage({ leads }: { leads: Lead[] }) {
           </Card>
         ))}
       </div>
+      <Card>
+        <SectionTitle title="Conversion funnel" />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          {funnelCards.map(([label, value]) => (
+            <div key={label} className="rounded-lg border border-line bg-panel2 p-3">
+              <div className="text-sm text-slate-400">{label}</div>
+              <div className="mt-2 text-xl font-black">{value}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+      <Card>
+        <SectionTitle title="Follow-up health" />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            ["Прострочено", overdueFollowUps],
+            ["Сьогодні", todayFollowUps],
+            ["Без next action", withoutNextAction],
+            ["Активні без follow-up", withoutFollowUp]
+          ].map(([label, value]) => (
+            <div key={label} className="rounded-lg border border-line bg-panel2 p-3">
+              <div className="text-sm text-slate-400">{label}</div>
+              <div className="mt-2 text-2xl font-black">{value}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
       <div className="grid gap-5 xl:grid-cols-2">
         <BarPanel title="Ліди по статусах" data={byStatus} />
         <BarPanel title="Ліди по нішах" data={byNiche} />
+        <BarPanel title="Джерела" data={bySource} />
+        <BarPanel title="Канали" data={byChannel} />
+        <BarPanel title="Пакети" data={byPackage} />
       </div>
     </div>
   );
@@ -3439,6 +3794,17 @@ function LeadForm({ lead, packages, today, onClose, onSave }: { lead: Lead | nul
           <Input label="Follow-up date" type="date" value={form.follow_up_date} onChange={(value) => setField("follow_up_date", value)} />
           <Textarea label="Наступна дія" value={form.next_action} onChange={(value) => setField("next_action", value)} />
         </div>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <QuickPick title="Ніша" items={["Легалізація", "Юристи", "Бухгалтерія", "Авто", "Beauty", "Нерухомість", "Освіта"]} onPick={(value) => setField("niche", value)} />
+          <QuickPick title="Місто" items={quickCities} onPick={(value) => setField("city", value)} />
+          <QuickPick title="Джерело" items={quickSources} onPick={(value) => {
+            setField("source", value);
+            setField("contact_channel", value);
+          }} />
+        </div>
+        <div className="mt-3">
+          <QuickPick title="Next action" items={nextActionPresets} onPick={(value) => setField("next_action", value)} />
+        </div>
         <button
           className="mt-4 w-full rounded-lg border border-line px-4 py-3 text-sm font-semibold md:hidden"
           onClick={() => setShowMore((current) => !current)}
@@ -3505,6 +3871,18 @@ function TaskEditor({ today, task, leads, onSave, onCancel }: { today: string; t
           </label>
           <Textarea label="Опис" value={draft.description} onChange={(value) => setField("description", value)} />
         </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {[
+            ["Today", today],
+            ["Tomorrow", addDays(today, 1)],
+            ["+3 days", addDays(today, 3)],
+            ["+7 days", addDays(today, 7)]
+          ].map(([label, date]) => (
+            <button key={label} className="rounded-lg border border-line px-3 py-2 text-sm font-semibold hover:bg-white hover:text-ink" onClick={() => setField("due_date", date)}>
+              {label}
+            </button>
+          ))}
+        </div>
         <div className="mt-5 flex justify-end gap-2">
           <button className="rounded-lg border border-line px-4 py-2 font-semibold" onClick={onCancel}>Скасувати</button>
           <button className="rounded-lg bg-white px-4 py-2 font-semibold text-ink" onClick={() => onSave(draft)}>Зберегти</button>
@@ -3562,6 +3940,21 @@ function TemplateEditor({ template, onSave, onCancel }: { template: Template; on
 
 function SectionTitle({ title }: { title: string }) {
   return <h2 className="mb-4 text-lg font-black">{title}</h2>;
+}
+
+function QuickPick({ title, items, onPick }: { title: string; items: string[]; onPick: (value: string) => void }) {
+  return (
+    <div className="rounded-lg border border-line bg-panel2 p-3">
+      <div className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{title}</div>
+      <div className="flex flex-wrap gap-2">
+        {items.map((item) => (
+          <button key={item} className="rounded-lg border border-line px-2 py-1 text-xs font-semibold hover:bg-white hover:text-ink" onClick={() => onPick(item)}>
+            {item}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function DataTable({ headers, rows }: { headers: string[]; rows: React.ReactNode[][] }) {
