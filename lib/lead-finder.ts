@@ -15,7 +15,7 @@ export type LeadCandidate = {
   phone: string;
   email: string;
   osm_url: string;
-  source: "OpenStreetMap";
+  source: "OpenStreetMap" | "Google Search";
   media_score: number;
   media_level: "No media" | "Weak media" | "Basic media" | "Strong media" | "Perfect for Hugo";
   media_notes: string;
@@ -60,6 +60,37 @@ type NominatimPlace = {
   address?: Record<string, string>;
   extratags?: Record<string, string>;
   namedetails?: Record<string, string>;
+};
+
+type SearchQuota = {
+  date: string;
+  used: number;
+  limit: number;
+};
+
+type SerperPlace = {
+  title?: string;
+  address?: string;
+  website?: string;
+  link?: string;
+  phoneNumber?: string;
+  phone?: string;
+  rating?: number;
+  reviews?: number;
+  cid?: string;
+};
+
+type SerperOrganic = {
+  title?: string;
+  link?: string;
+  snippet?: string;
+  displayedLink?: string;
+};
+
+type SerperResponse = {
+  places?: SerperPlace[];
+  localResults?: SerperPlace[];
+  organic?: SerperOrganic[];
 };
 
 const defaultCities = ["Warszawa", "Kraków", "Wrocław", "Poznań", "Gdańsk", "Łódź"];
@@ -153,6 +184,41 @@ const nicheAliases: Record<string, string[]> = {
 };
 const targetKeywords = ["ukrain", "ukraiń", "ukraina", "україн", "pobyt", "legalizacja", "karta pobytu", "cudzoziem", "księgowość", "biuro rachunkowe", "beauty", "auto"];
 const candidateSettingsKey = "lead_candidates";
+const searchQuotaSettingsKey = "lead_search_quota";
+const defaultDailySearchLimit = 15;
+const countrySearchMeta: Record<string, { label: string; gl: string }> = {
+  poland: { label: "Poland", gl: "pl" },
+  polska: { label: "Poland", gl: "pl" },
+  польща: { label: "Poland", gl: "pl" },
+  pl: { label: "Poland", gl: "pl" },
+  germany: { label: "Germany", gl: "de" },
+  deutschland: { label: "Germany", gl: "de" },
+  німеччина: { label: "Germany", gl: "de" },
+  de: { label: "Germany", gl: "de" },
+  czechia: { label: "Czechia", gl: "cz" },
+  czech: { label: "Czechia", gl: "cz" },
+  чехія: { label: "Czechia", gl: "cz" },
+  cz: { label: "Czechia", gl: "cz" },
+  slovakia: { label: "Slovakia", gl: "sk" },
+  словаччина: { label: "Slovakia", gl: "sk" },
+  sk: { label: "Slovakia", gl: "sk" },
+  austria: { label: "Austria", gl: "at" },
+  австрія: { label: "Austria", gl: "at" },
+  netherlands: { label: "Netherlands", gl: "nl" },
+  нідерланди: { label: "Netherlands", gl: "nl" },
+  france: { label: "France", gl: "fr" },
+  франція: { label: "France", gl: "fr" },
+  spain: { label: "Spain", gl: "es" },
+  іспанія: { label: "Spain", gl: "es" },
+  italy: { label: "Italy", gl: "it" },
+  італія: { label: "Italy", gl: "it" },
+  portugal: { label: "Portugal", gl: "pt" },
+  португалія: { label: "Portugal", gl: "pt" },
+  belgium: { label: "Belgium", gl: "be" },
+  бельгія: { label: "Belgium", gl: "be" },
+  ireland: { label: "Ireland", gl: "ie" },
+  ірландія: { label: "Ireland", gl: "ie" }
+};
 const searchTermsByNiche: Record<string, string[]> = {
   "Легалізація / юристи": ["legalizacja pobytu", "kancelaria prawna", "immigration lawyer", "visa lawyer", "legal office"],
   "Бухгалтерія": ["biuro rachunkowe", "accounting office", "księgowość", "tax advisor"],
@@ -164,6 +230,11 @@ const searchTermsByNiche: Record<string, string[]> = {
   Медицина: ["clinic", "medical center", "dentist", "doctor"],
   Переклади: ["translation office", "tłumacz", "translator"]
 };
+
+function dailySearchLimit() {
+  const value = Number(process.env.LEAD_SEARCH_DAILY_LIMIT);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : defaultDailySearchLimit;
+}
 
 export function dateKey(timeZone = process.env.TELEGRAM_TIME_ZONE || "Europe/Kyiv") {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -222,6 +293,43 @@ async function writeCandidateStore(candidates: LeadCandidate[]) {
   });
 }
 
+async function readSearchQuota() {
+  const rows = await supabaseRequest<SettingsRow<SearchQuota>[]>(
+    "settings",
+    `select=key,value&key=eq.${searchQuotaSettingsKey}&limit=1`
+  );
+  const limit = dailySearchLimit();
+  const today = dateKey();
+  const quota = rows[0]?.value;
+  if (!quota || quota.date !== today) {
+    return { date: today, used: 0, limit };
+  }
+  return { date: today, used: Number(quota.used) || 0, limit: Number(quota.limit) || limit };
+}
+
+async function writeSearchQuota(quota: SearchQuota) {
+  await supabaseRequest<null>("settings", "on_conflict=key", {
+    method: "POST",
+    headers: { prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify([{ key: searchQuotaSettingsKey, value: quota }])
+  });
+}
+
+async function consumeQualitySearchQuota() {
+  const quota = await readSearchQuota();
+  if (quota.used >= quota.limit) {
+    throw new Error(`Ліміт якісного пошуку на сьогодні вичерпано: ${quota.used}/${quota.limit}. Завтра ліміт оновиться.`);
+  }
+  const next = { ...quota, used: quota.used + 1 };
+  await writeSearchQuota(next);
+  return { ...next, remaining: Math.max(0, next.limit - next.used) };
+}
+
+export async function getLeadSearchQuota() {
+  const quota = await readSearchQuota();
+  return { ...quota, remaining: Math.max(0, quota.limit - quota.used) };
+}
+
 async function fetchWithTimeout(url: string, init: RequestInit = {}, timeoutMs = 9000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -239,6 +347,43 @@ function cleanUrl(value = "") {
 function textIncludesTargetKeyword(text: string) {
   const lower = text.toLowerCase();
   return targetKeywords.some((keyword) => lower.includes(keyword));
+}
+
+function isDirectoryUrl(value = "") {
+  const lower = value.toLowerCase();
+  return [
+    "facebook.com",
+    "instagram.com",
+    "linkedin.com",
+    "youtube.com",
+    "tiktok.com",
+    "panoramafirm.pl",
+    "pkt.pl",
+    "yelp.",
+    "yellowpages",
+    "tripadvisor.",
+    "booking.com",
+    "cylex.",
+    "firmenabc.",
+    "11880.com",
+    "trustpilot."
+  ].some((host) => lower.includes(host));
+}
+
+function isWeakDirectoryResult(title = "", link = "") {
+  const lower = `${title} ${link}`.toLowerCase();
+  return [
+    "best ",
+    "top ",
+    "near me",
+    "list of",
+    "ranking",
+    "directory",
+    "каталог",
+    "yellow pages",
+    "tripadvisor",
+    "booking.com"
+  ].some((phrase) => lower.includes(phrase));
 }
 
 function mediaLevel(score: number): LeadCandidate["media_level"] {
@@ -302,6 +447,36 @@ function candidateScore(candidate: Omit<LeadCandidate, "media_score" | "media_le
         : score >= 45
           ? "Є базова присутність, але медійна подача може бути слабкою. Добрий кандидат для формату “людина за бізнесом”."
           : "Реальний бізнес у цільовій ніші. Потрібна ручна перевірка соцмереж, але може бути добрий кандидат для довіри й медійного візиту."
+  };
+}
+
+function qualityScore(candidate: Omit<LeadCandidate, "media_score" | "media_level" | "media_notes" | "why_good_for_hugo">, keywordText: string, rating?: number, reviews?: number) {
+  const base = candidateScore(candidate, keywordText);
+  let score = base.media_score;
+  if (candidate.source === "Google Search") score += 8;
+  if (candidate.website_url && !isDirectoryUrl(candidate.website_url)) score += 12;
+  if (candidate.phone) score += 10;
+  if ((reviews ?? 0) >= 10) score += 10;
+  if ((reviews ?? 0) >= 50) score += 8;
+  if ((rating ?? 0) >= 4.2) score += 6;
+  if (textIncludesTargetKeyword(keywordText)) score += 8;
+  score = Math.min(100, score);
+  const proof = [
+    candidate.website_url && !isDirectoryUrl(candidate.website_url) ? "власний сайт" : "",
+    candidate.phone ? "є телефон" : "",
+    reviews ? `${reviews} відгуків` : "",
+    rating ? `рейтинг ${rating}` : "",
+    textIncludesTargetKeyword(keywordText) ? "є цільові слова" : ""
+  ].filter(Boolean);
+  return {
+    ...base,
+    media_score: score,
+    media_level: mediaLevel(score),
+    media_notes: proof.length ? proof.join(", ") : base.media_notes,
+    why_good_for_hugo:
+      score >= 70
+        ? "Якісний кандидат з Google-пошуку: є ознаки живого бізнесу, контакт або власний сайт. Варто перевірити і додати в CRM."
+        : base.why_good_for_hugo
   };
 }
 
@@ -413,6 +588,152 @@ function nominatimTerms(niche: string, nicheQuery?: string) {
   const custom = nicheQuery?.trim();
   const terms = searchTermsByNiche[niche] ?? [];
   return [...new Set([...(custom ? [custom] : []), ...terms])].slice(0, 5);
+}
+
+function resolveSearchCountry(locationQuery?: string) {
+  const normalized = normalizeLookup(locationQuery);
+  if (normalized && countrySearchMeta[normalized]) return countrySearchMeta[normalized];
+  const city = locationQuery?.trim();
+  return { label: city || "Europe", gl: "pl" };
+}
+
+function serperTerms(niche: string, nicheQuery?: string) {
+  const custom = nicheQuery?.trim();
+  const terms = searchTermsByNiche[niche] ?? [];
+  return [...new Set([...(custom ? [custom] : []), ...terms])].slice(0, 3);
+}
+
+async function fetchSerper(endpoint: "places" | "search", body: Record<string, unknown>) {
+  const apiKey = process.env.SERPER_API_KEY;
+  if (!apiKey) throw new Error("SERPER_API_KEY не заданий у Vercel. Якісний пошук вимкнений.");
+  const response = await fetchWithTimeout(`https://google.serper.dev/${endpoint}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": apiKey
+    },
+    body: JSON.stringify(body)
+  }, 16_000);
+  if (!response.ok) {
+    throw new Error(`Serper search ${response.status}: ${await response.text()}`);
+  }
+  return (await response.json()) as SerperResponse;
+}
+
+function mapSerperPlace(place: SerperPlace, niche: string, locationLabel: string): Omit<LeadCandidate, "media_score" | "media_level" | "media_notes" | "why_good_for_hugo"> | null {
+  const businessName = place.title?.trim() || "";
+  if (!businessName || businessName.length < 3) return null;
+  const website = cleanUrl(place.website || place.link || "");
+  const phone = place.phoneNumber || place.phone || "";
+  if (!website && !phone && !place.reviews) return null;
+  return {
+    id: crypto.randomUUID(),
+    business_name: businessName,
+    niche,
+    city: locationLabel,
+    address: place.address || locationLabel,
+    website_url: website,
+    instagram_url: "",
+    facebook_url: "",
+    tiktok_url: "",
+    youtube_url: "",
+    linkedin_url: "",
+    phone,
+    email: "",
+    osm_url: `https://www.google.com/search?q=${encodeURIComponent(`${businessName} ${locationLabel}`)}`,
+    source: "Google Search",
+    status: "Candidate",
+    created_at: dateKey(),
+    updated_at: dateKey()
+  };
+}
+
+function mapSerperOrganic(result: SerperOrganic, niche: string, locationLabel: string): Omit<LeadCandidate, "media_score" | "media_level" | "media_notes" | "why_good_for_hugo"> | null {
+  const businessName = result.title?.replace(/\s[-|].*$/, "").trim() || "";
+  const website = cleanUrl(result.link || "");
+  if (!businessName || businessName.length < 3 || !website) return null;
+  if (isDirectoryUrl(website) || isWeakDirectoryResult(result.title, website)) return null;
+  return {
+    id: crypto.randomUUID(),
+    business_name: businessName,
+    niche,
+    city: locationLabel,
+    address: result.snippet || locationLabel,
+    website_url: website,
+    instagram_url: "",
+    facebook_url: "",
+    tiktok_url: "",
+    youtube_url: "",
+    linkedin_url: "",
+    phone: "",
+    email: "",
+    osm_url: `https://www.google.com/search?q=${encodeURIComponent(`${businessName} ${locationLabel}`)}`,
+    source: "Google Search",
+    status: "Candidate",
+    created_at: dateKey(),
+    updated_at: dateKey()
+  };
+}
+
+async function findSerperCandidates(options: {
+  locationQuery?: string;
+  categories: Array<{ niche: string; tags: string[] }>;
+  nicheQuery?: string;
+  leads: LeadLookup[];
+  existingCandidates: LeadCandidate[];
+  found: LeadCandidate[];
+  limit: number;
+}) {
+  const country = resolveSearchCountry(options.locationQuery);
+  const category = options.categories[0];
+  const terms = serperTerms(category.niche, options.nicheQuery);
+  const query = `${terms.join(" OR ")} ${country.label}`;
+  const searchBody = { q: query, gl: country.gl, hl: "uk", num: Math.min(10, options.limit) };
+  const placesData = await fetchSerper("places", searchBody);
+  const places = [...(placesData.places ?? []), ...(placesData.localResults ?? [])];
+
+  for (const place of places) {
+    if (options.found.length >= options.limit) return;
+    const base = mapSerperPlace(place, category.niche, country.label);
+    if (!base) continue;
+    const socials = base.website_url && !isDirectoryUrl(base.website_url) ? await extractWebsiteSocials(base.website_url) : {};
+    const candidateBase = {
+      ...base,
+      instagram_url: socials.instagram_url || "",
+      facebook_url: socials.facebook_url || "",
+      tiktok_url: socials.tiktok_url || "",
+      youtube_url: socials.youtube_url || "",
+      linkedin_url: socials.linkedin_url || ""
+    };
+    const score = qualityScore(candidateBase, `${place.title ?? ""} ${place.address ?? ""} ${query}`, place.rating, place.reviews);
+    const candidate: LeadCandidate = { ...candidateBase, ...score };
+    if (candidate.media_score < 45) continue;
+    if (hasDuplicate(candidate, options.leads, [...options.existingCandidates, ...options.found])) continue;
+    options.found.push(candidate);
+  }
+
+  if (options.found.length >= Math.min(3, options.limit)) return;
+
+  const organicData = await fetchSerper("search", searchBody);
+  for (const result of organicData.organic ?? []) {
+    if (options.found.length >= options.limit) return;
+    const base = mapSerperOrganic(result, category.niche, country.label);
+    if (!base) continue;
+    const socials = await extractWebsiteSocials(base.website_url);
+    const candidateBase = {
+      ...base,
+      instagram_url: socials.instagram_url || "",
+      facebook_url: socials.facebook_url || "",
+      tiktok_url: socials.tiktok_url || "",
+      youtube_url: socials.youtube_url || "",
+      linkedin_url: socials.linkedin_url || ""
+    };
+    const score = qualityScore(candidateBase, `${result.title ?? ""} ${result.snippet ?? ""} ${query}`);
+    const candidate: LeadCandidate = { ...candidateBase, ...score };
+    if (candidate.media_score < 45) continue;
+    if (hasDuplicate(candidate, options.leads, [...options.existingCandidates, ...options.found])) continue;
+    options.found.push(candidate);
+  }
 }
 
 async function findNominatimCandidates(options: {
@@ -544,13 +865,13 @@ export async function addCandidateToCrm(candidateId: string, priority: "Medium" 
     last_contact_date: dateKey(),
     follow_up_date: null,
     next_action: priority === "Hot" ? "Перевірити соцмережі і написати персоналізоване повідомлення" : "Перевірити кандидата і підготувати перше повідомлення",
-    source: "OpenStreetMap",
+    source: candidate.source,
     notes: [
       `Media score: ${candidate.media_score}/100`,
       `Media level: ${candidate.media_level}`,
       `Media notes: ${candidate.media_notes}`,
       `Чому підходить: ${candidate.why_good_for_hugo}`,
-      `OSM: ${candidate.osm_url}`
+      `Source URL: ${candidate.osm_url}`
     ].join("\n"),
     created_at: dateKey(),
     updated_at: dateKey()
@@ -574,7 +895,7 @@ export async function addCandidateToCrm(candidateId: string, priority: "Medium" 
   return candidate;
 }
 
-export async function findLeadCandidates(options: { limit?: number; city?: string; nicheQuery?: string } = {}) {
+export async function findLeadCandidates(options: { limit?: number; city?: string; nicheQuery?: string; qualityOnly?: boolean } = {}) {
   const limit = options.limit ?? 30;
   const cities = resolveCities(options.city);
   const normalizedNiche = normalizeLookup(options.nicheQuery);
@@ -592,6 +913,24 @@ export async function findLeadCandidates(options: { limit?: number; city?: strin
   ]);
   const found: LeadCandidate[] = [];
   const overpassUrl = process.env.OVERPASS_API_URL || "https://overpass-api.de/api/interpreter";
+
+  if (process.env.SERPER_API_KEY || options.qualityOnly) {
+    if (!process.env.SERPER_API_KEY) {
+      throw new Error("SERPER_API_KEY не заданий у Vercel. Якісний пошук вимкнений.");
+    }
+    await consumeQualitySearchQuota();
+    await findSerperCandidates({
+      locationQuery: options.city,
+      categories: selectedCategories,
+      nicheQuery: options.nicheQuery,
+      leads,
+      existingCandidates,
+      found,
+      limit
+    });
+    await saveCandidates(found);
+    if (options.qualityOnly || found.length) return found;
+  }
 
   for (const city of cities) {
     for (const category of selectedCategories) {

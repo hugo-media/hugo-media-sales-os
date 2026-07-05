@@ -2,6 +2,7 @@ import {
   addCandidateToCrm,
   dateKey,
   findLeadCandidates,
+  getLeadSearchQuota,
   listCandidates,
   updateCandidateStatus
 } from "@/lib/lead-finder";
@@ -237,9 +238,10 @@ function leadFinderCountryKeyboard(nicheKey: string) {
 }
 
 async function runLeadFinder(chatId: number | string, nicheQuery?: string, countryOrCity?: string, limit = 10) {
-  await sendTelegram(chatId, `Шукаю кандидатів: <b>${escapeHtml(nicheQuery || "усі ніші")}</b> · <b>${escapeHtml(countryOrCity || "Європа")}</b>`);
-  const candidates = await findLeadCandidates({ limit, nicheQuery, city: countryOrCity });
-  await sendTelegram(chatId, `Знайшов ${candidates.length} кандидатів без дублів.`);
+  await sendTelegram(chatId, `Шукаю якісних кандидатів: <b>${escapeHtml(nicheQuery || "усі ніші")}</b> · <b>${escapeHtml(countryOrCity || "Європа")}</b>`);
+  const candidates = await findLeadCandidates({ limit, nicheQuery, city: countryOrCity, qualityOnly: true });
+  const quota = await getLeadSearchQuota();
+  await sendTelegram(chatId, `Знайшов ${candidates.length} кандидатів без дублів. Ліміт на сьогодні: ${quota.used}/${quota.limit}, залишилось ${quota.remaining}.`);
   await sendCandidateCards(chatId, candidates);
 }
 
@@ -261,7 +263,7 @@ function candidateCard(candidate: LeadCandidate, index?: number, total?: number)
     `<b>${escapeHtml(candidate.business_name)}</b>`,
     `Ніша: ${escapeHtml(candidate.niche)}`,
     `Місто: ${escapeHtml(candidate.city)}`,
-    "Джерело: OpenStreetMap",
+    `Джерело: ${escapeHtml(candidate.source)}`,
     "",
     `Website: ${candidate.website_url ? "✅" : "—"}`,
     `Instagram: ${candidate.instagram_url ? "✅" : "—"}`,
@@ -299,7 +301,7 @@ function candidateButtons(candidate: LeadCandidate) {
 
 async function sendCandidateCards(chatId: number | string, candidates: LeadCandidate[]) {
   if (!candidates.length) {
-    await sendTelegram(chatId, "Кандидатів немає. Натисни /find30, щоб знайти нових.");
+    await sendTelegram(chatId, "Кандидатів немає. Спробуй іншу нішу або країну. Я більше не підмішую слабкі картографічні результати в якісний пошук.");
     return;
   }
   for (const [index, candidate] of candidates.slice(0, 5).entries()) {
@@ -476,7 +478,11 @@ export async function POST(request: Request) {
           return Response.json({ ok: true });
         }
         await answerCallback(callback.id, `${niche.label} · ${country.label}`);
-        await runLeadFinder(callback.message.chat.id, niche.query, country.key, 10);
+        try {
+          await runLeadFinder(callback.message.chat.id, niche.query, country.key, 10);
+        } catch (error) {
+          await sendTelegram(callback.message.chat.id, `Якісний пошук не запустився: ${escapeHtml(error instanceof Error ? error.message : "невідома помилка")}`);
+        }
         return Response.json({ ok: true });
       }
       if (action === "candidate_add" || action === "candidate_hot") {
@@ -521,7 +527,7 @@ export async function POST(request: Request) {
       try {
         await runLeadFinder(chatId, maybeNiche, maybeLocation, 10);
       } catch (error) {
-        await sendTelegram(chatId, `Overpass зараз не відповідає або Supabase не готовий: ${escapeHtml(error instanceof Error ? error.message : "невідома помилка")}`);
+        await sendTelegram(chatId, `Якісний пошук не запустився: ${escapeHtml(error instanceof Error ? error.message : "невідома помилка")}`);
         return Response.json({ ok: true });
       }
       return Response.json({ ok: true });
