@@ -1,3 +1,12 @@
+import {
+  addCandidateToCrm,
+  dateKey,
+  findLeadCandidates,
+  LeadCandidate,
+  listCandidates,
+  updateCandidateStatus
+} from "@/lib/lead-finder";
+
 type LeadStatus =
   | "Новий"
   | "Проаналізований"
@@ -19,6 +28,7 @@ type LeadStatus =
 type LeadRow = {
   id: string;
   business_name: string;
+  priority?: "Low" | "Medium" | "High" | "Hot" | null;
   status: LeadStatus;
   deal_value: number | null;
   follow_up_date: string | null;
@@ -41,6 +51,13 @@ type TelegramUpdate = {
     chat?: { id?: number | string };
     text?: string;
   };
+  callback_query?: {
+    id: string;
+    data?: string;
+    message?: {
+      chat?: { id?: number | string };
+    };
+  };
 };
 
 const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || "";
@@ -51,17 +68,6 @@ function escapeHtml(value: string) {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
-}
-
-function dateKey(timeZone = process.env.TELEGRAM_TIME_ZONE || "Europe/Kyiv") {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit"
-  }).formatToParts(new Date());
-  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "";
-  return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
 function money(value: number | null | undefined) {
@@ -129,7 +135,7 @@ async function supabaseGet<T>(table: string, query: string) {
   return (await response.json()) as T;
 }
 
-async function sendTelegram(chatId: number | string, text: string) {
+async function sendTelegram(chatId: number | string, text: string, replyMarkup?: unknown) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
     throw new Error("Missing Telegram bot token");
@@ -143,11 +149,11 @@ async function sendTelegram(chatId: number | string, text: string) {
       text,
       disable_web_page_preview: true,
       parse_mode: "HTML",
-      reply_markup: {
+      reply_markup: replyMarkup ?? {
         keyboard: [
-          [{ text: "⚡ Що робити зараз" }, { text: "📊 Статус зараз" }],
+          [{ text: "⚡ Що робити зараз" }, { text: "🔎 /find30" }],
           [{ text: "📞 Дзвінки" }, { text: "🔥 Кому писати" }],
-          [{ text: "⏰ Прострочені" }, { text: "💶 Pipeline" }],
+          [{ text: "⏰ Прострочені" }, { text: "💶 Pipeline" }, { text: "📋 /candidates" }],
           [{ text: "Відкрити CRM" }]
         ],
         resize_keyboard: true
@@ -157,6 +163,73 @@ async function sendTelegram(chatId: number | string, text: string) {
 
   if (!response.ok) {
     throw new Error(`Telegram ${response.status}: ${await response.text()}`);
+  }
+}
+
+async function answerCallback(callbackId: string, text: string) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return;
+  await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ callback_query_id: callbackId, text })
+  });
+}
+
+function candidateCard(candidate: LeadCandidate, index?: number, total?: number) {
+  const title = index && total ? `🆕 Lead candidate ${index}/${total}` : "🆕 Lead candidate";
+  return [
+    `<b>${title}</b>`,
+    "",
+    `<b>${escapeHtml(candidate.business_name)}</b>`,
+    `Ніша: ${escapeHtml(candidate.niche)}`,
+    `Місто: ${escapeHtml(candidate.city)}`,
+    "Джерело: OpenStreetMap",
+    "",
+    `Website: ${candidate.website_url ? "✅" : "—"}`,
+    `Instagram: ${candidate.instagram_url ? "✅" : "—"}`,
+    `Facebook: ${candidate.facebook_url ? "✅" : "—"}`,
+    `TikTok: ${candidate.tiktok_url ? "✅" : "—"}`,
+    `Phone/email: ${candidate.phone || candidate.email ? "✅" : "—"}`,
+    "",
+    `Media score: <b>${candidate.media_score}/100</b>`,
+    `Рівень: ${escapeHtml(candidate.media_level)}`,
+    "",
+    "<b>Чому підходить:</b>",
+    escapeHtml(candidate.why_good_for_hugo)
+  ].join("\n");
+}
+
+function candidateButtons(candidate: LeadCandidate) {
+  const rows: Array<Array<{ text: string; callback_data?: string; url?: string }>> = [
+    [
+      { text: "Додати в CRM", callback_data: `candidate_add:${candidate.id}` },
+      { text: "Hot", callback_data: `candidate_hot:${candidate.id}` }
+    ],
+    [
+      { text: "Later", callback_data: `candidate_later:${candidate.id}` },
+      { text: "Reject", callback_data: `candidate_reject:${candidate.id}` }
+    ]
+  ];
+  const links: Array<{ text: string; url: string }> = [];
+  if (candidate.website_url) links.push({ text: "Website", url: candidate.website_url });
+  if (candidate.instagram_url) links.push({ text: "Instagram", url: candidate.instagram_url });
+  if (candidate.facebook_url) links.push({ text: "Facebook", url: candidate.facebook_url });
+  links.push({ text: "Google Search", url: `https://www.google.com/search?q=${encodeURIComponent(`${candidate.business_name} ${candidate.city} Instagram`)}` });
+  rows.push(links);
+  return { inline_keyboard: rows };
+}
+
+async function sendCandidateCards(chatId: number | string, candidates: LeadCandidate[]) {
+  if (!candidates.length) {
+    await sendTelegram(chatId, "Кандидатів немає. Натисни /find30, щоб знайти нових.");
+    return;
+  }
+  for (const [index, candidate] of candidates.slice(0, 5).entries()) {
+    await sendTelegram(chatId, candidateCard(candidate, index + 1, candidates.length), candidateButtons(candidate));
+  }
+  if (candidates.length > 5) {
+    await sendTelegram(chatId, `Показав перші 5 з ${candidates.length}. Напиши /candidates, щоб побачити збережених кандидатів.`);
   }
 }
 
@@ -202,6 +275,40 @@ function buildStatus(leads: LeadRow[], tasks: TaskRow[], today: string) {
   }
 
   return lines.join("\n");
+}
+
+function buildFollowups(leads: LeadRow[], today: string) {
+  const activeLeads = leads.filter((lead) => !isLeadClosed(lead));
+  const overdue = activeLeads.filter((lead) => lead.follow_up_date && lead.follow_up_date < today);
+  const dueToday = activeLeads.filter((lead) => lead.follow_up_date === today);
+  return [
+    "<b>Follow-up</b>",
+    "",
+    "<b>Прострочені</b>",
+    ...(overdue.length ? overdue.slice(0, 8).map((lead) => `• ${escapeHtml(lead.business_name)} · ${lead.follow_up_date}\n  ${escapeHtml(leadAction(lead, today))}`) : ["Немає"]),
+    "",
+    "<b>Сьогодні</b>",
+    ...(dueToday.length ? dueToday.slice(0, 8).map((lead) => `• ${escapeHtml(lead.business_name)}\n  ${escapeHtml(leadAction(lead, today))}`) : ["Немає"])
+  ].join("\n");
+}
+
+function buildKpi(leads: LeadRow[], today: string) {
+  const monthKey = today.slice(0, 7);
+  const activeLeads = leads.filter((lead) => !isLeadClosed(lead));
+  const addedToday = leads.filter((lead) => lead.created_at?.startsWith(today)).length;
+  const contactedToday = leads.filter((lead) => lead.updated_at?.startsWith(today) && ["Контакт", "Без відповіді", "Дзвінок", "КП", "На паузі"].includes(visibleLeadStatus(lead.status))).length;
+  const followupsToday = activeLeads.filter((lead) => lead.follow_up_date === today).length;
+  const openPipeline = activeLeads.reduce((sum, lead) => sum + (Number(lead.deal_value) || 0), 0);
+  const wonThisMonth = leads.filter((lead) => lead.status === "Виграно" && lead.updated_at?.startsWith(monthKey)).reduce((sum, lead) => sum + (Number(lead.deal_value) || 0), 0);
+  return [
+    "<b>KPI зараз</b>",
+    "",
+    `➕ Додано лідів сьогодні: ${addedToday}`,
+    `💬 Контактів сьогодні: ${contactedToday}`,
+    `✉️ Follow-up сьогодні: ${followupsToday}`,
+    `💶 Open pipeline: ${money(openPipeline)}`,
+    `🏁 Won revenue this month: ${money(wonThisMonth)}`
+  ].join("\n");
 }
 
 function buildCalls(leads: LeadRow[], tasks: TaskRow[], today: string) {
@@ -271,6 +378,26 @@ function buildPipeline(leads: LeadRow[], today: string) {
 export async function POST(request: Request) {
   try {
     const update = (await request.json()) as TelegramUpdate;
+    const callback = update.callback_query;
+    if (callback?.data && callback.message?.chat?.id) {
+      const [action, id] = callback.data.split(":");
+      if (action === "candidate_add" || action === "candidate_hot") {
+        const candidate = await addCandidateToCrm(id, action === "candidate_hot" ? "Hot" : "Medium");
+        await answerCallback(callback.id, action === "candidate_hot" ? "Додано як Hot" : "Додано в CRM");
+        await sendTelegram(callback.message.chat.id, `✅ Додано в CRM: <b>${escapeHtml(candidate.business_name)}</b>`);
+        return Response.json({ ok: true });
+      }
+      if (action === "candidate_reject" || action === "candidate_later") {
+        const status = action === "candidate_reject" ? "Rejected" : "Later";
+        await updateCandidateStatus(id, status);
+        await answerCallback(callback.id, action === "candidate_reject" ? "Відхилено" : "Відкладено");
+        await sendTelegram(callback.message.chat.id, action === "candidate_reject" ? "🗑 Кандидата відхилено" : "🕓 Кандидата відкладено");
+        return Response.json({ ok: true });
+      }
+      await answerCallback(callback.id, "Невідома дія");
+      return Response.json({ ok: true });
+    }
+
     const chatId = update.message?.chat?.id;
     const text = update.message?.text?.trim() || "";
 
@@ -283,22 +410,50 @@ export async function POST(request: Request) {
       return Response.json({ ok: true });
     }
 
-    const knownActions = ["/start", "/status", "⚡ Що робити зараз", "📊 Статус зараз", "📞 Дзвінки", "🔥 Кому писати", "⏰ Прострочені", "💶 Pipeline"];
+    const lowerText = text.toLowerCase();
+    if (lowerText === "/find30" || text === "🔎 /find30" || lowerText.startsWith("/find ")) {
+      await sendTelegram(chatId, "Шукаю безкоштовних кандидатів через OpenStreetMap. Це може зайняти до хвилини.");
+      const parts = text.split(/\s+/).slice(1);
+      const maybeCity = parts[1];
+      const maybeNiche = parts[0];
+      let candidates: LeadCandidate[] = [];
+      try {
+        candidates = await findLeadCandidates({
+          limit: lowerText === "/find30" || text === "🔎 /find30" ? 30 : 10,
+          nicheQuery: maybeNiche,
+          city: maybeCity
+        });
+      } catch (error) {
+        await sendTelegram(chatId, `Overpass зараз не відповідає або Supabase не готовий: ${escapeHtml(error instanceof Error ? error.message : "невідома помилка")}`);
+        return Response.json({ ok: true });
+      }
+      await sendTelegram(chatId, `Знайшов ${candidates.length} кандидатів без дублів.`);
+      await sendCandidateCards(chatId, candidates);
+      return Response.json({ ok: true });
+    }
+
+    if (lowerText === "/candidates" || text === "📋 /candidates") {
+      const candidates = await listCandidates(10);
+      await sendCandidateCards(chatId, candidates);
+      return Response.json({ ok: true });
+    }
+
+    const knownActions = ["/start", "/status", "/today", "/hot", "/followups", "/kpi", "⚡ Що робити зараз", "📊 Статус зараз", "📞 Дзвінки", "🔥 Кому писати", "⏰ Прострочені", "💶 Pipeline"];
     if (!knownActions.includes(text)) {
-      await sendTelegram(chatId, "Натисни <b>⚡ Що робити зараз</b>, <b>📞 Дзвінки</b>, <b>🔥 Кому писати</b> або напиши /status.");
+      await sendTelegram(chatId, "Натисни <b>/find30</b>, <b>/candidates</b>, <b>⚡ Що робити зараз</b>, <b>📞 Дзвінки</b>, <b>🔥 Кому писати</b> або напиши /status.");
       return Response.json({ ok: true });
     }
 
     const today = dateKey();
     const [leads, tasks] = await Promise.all([
-      supabaseGet<LeadRow[]>("leads", "select=id,business_name,status,deal_value,follow_up_date,next_action,updated_at,created_at&order=follow_up_date.asc"),
+      supabaseGet<LeadRow[]>("leads", "select=id,business_name,priority,status,deal_value,follow_up_date,next_action,updated_at,created_at&order=follow_up_date.asc"),
       supabaseGet<TaskRow[]>("tasks", "select=id,title,type,related_lead_id,due_date,status&order=due_date.asc")
     ]);
 
     const activeLeads = leads.filter((lead) => !["Виграно", "Закриті"].includes(visibleLeadStatus(lead.status)));
-    if (text === "🔥 Кому писати") {
+    if (text === "/hot" || text === "🔥 Кому писати") {
       const outreach = activeLeads
-        .filter((lead) => ["Новий", "Контакт", "Без відповіді", "КП", "На паузі"].includes(visibleLeadStatus(lead.status)))
+        .filter((lead) => lead.priority === "Hot" || lead.priority === "High" || ["Новий", "Контакт", "Без відповіді", "КП", "На паузі"].includes(visibleLeadStatus(lead.status)))
         .sort((a, b) => leadScore(b, today) - leadScore(a, today));
       await sendTelegram(chatId, buildLeadList("Кому писати зараз", outreach, today));
       return Response.json({ ok: true });
@@ -319,6 +474,16 @@ export async function POST(request: Request) {
 
     if (text === "💶 Pipeline") {
       await sendTelegram(chatId, buildPipeline(leads, today));
+      return Response.json({ ok: true });
+    }
+
+    if (text === "/followups") {
+      await sendTelegram(chatId, buildFollowups(leads, today));
+      return Response.json({ ok: true });
+    }
+
+    if (text === "/kpi") {
+      await sendTelegram(chatId, buildKpi(leads, today));
       return Response.json({ ok: true });
     }
 

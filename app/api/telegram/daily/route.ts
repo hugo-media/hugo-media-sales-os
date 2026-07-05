@@ -142,9 +142,9 @@ async function sendTelegram(text: string) {
       parse_mode: "HTML",
       reply_markup: {
         keyboard: [
-          [{ text: "⚡ Що робити зараз" }, { text: "📊 Статус зараз" }],
+          [{ text: "⚡ Що робити зараз" }, { text: "🔎 /find30" }],
           [{ text: "📞 Дзвінки" }, { text: "🔥 Кому писати" }],
-          [{ text: "⏰ Прострочені" }, { text: "💶 Pipeline" }],
+          [{ text: "⏰ Прострочені" }, { text: "💶 Pipeline" }, { text: "📋 /candidates" }],
           [{ text: "Відкрити CRM" }]
         ],
         resize_keyboard: true
@@ -206,6 +206,7 @@ function buildMorningDigest(leads: LeadRow[], tasks: TaskRow[], today: string) {
   if (appUrl) {
     lines.push("", `<a href="${appUrl}">Відкрити CRM</a>`);
   }
+  lines.push("", "🔎 Натисни /find30, щоб безкоштовно знайти 30 нових компаній через OpenStreetMap.");
 
   return lines.join("\n");
 }

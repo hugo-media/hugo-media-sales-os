@@ -36,6 +36,31 @@ add column if not exists last_message text not null default '';
 alter table public.leads
 add column if not exists proposal_sent_date date;
 
+create table if not exists public.lead_candidates (
+  id uuid primary key default gen_random_uuid(),
+  business_name text not null,
+  niche text not null default '',
+  city text not null default '',
+  address text not null default '',
+  website_url text not null default '',
+  instagram_url text not null default '',
+  facebook_url text not null default '',
+  tiktok_url text not null default '',
+  youtube_url text not null default '',
+  linkedin_url text not null default '',
+  phone text not null default '',
+  email text not null default '',
+  osm_url text not null default '',
+  source text not null default 'OpenStreetMap',
+  media_score integer not null default 0,
+  media_level text not null default 'No media',
+  media_notes text not null default '',
+  why_good_for_hugo text not null default '',
+  status text not null default 'Candidate',
+  created_at date not null default current_date,
+  updated_at date not null default current_date
+);
+
 create table if not exists public.tasks (
   id uuid primary key default gen_random_uuid(),
   title text not null,
