@@ -135,6 +135,27 @@ async function supabaseGet<T>(table: string, query: string) {
   return (await response.json()) as T;
 }
 
+function isMissingSupabaseColumn(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes("PGRST204") || message.includes("schema cache") || message.includes("Could not find the");
+}
+
+async function getLeadsForBot() {
+  try {
+    return await supabaseGet<LeadRow[]>(
+      "leads",
+      "select=id,business_name,priority,status,deal_value,follow_up_date,next_action,updated_at,created_at&order=follow_up_date.asc"
+    );
+  } catch (error) {
+    if (!isMissingSupabaseColumn(error)) throw error;
+    const rows = await supabaseGet<Omit<LeadRow, "priority">[]>(
+      "leads",
+      "select=id,business_name,status,deal_value,follow_up_date,next_action,updated_at,created_at&order=follow_up_date.asc"
+    );
+    return rows.map((lead) => ({ ...lead, priority: "Medium" as const }));
+  }
+}
+
 async function sendTelegram(chatId: number | string, text: string, replyMarkup?: unknown) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
@@ -446,7 +467,7 @@ export async function POST(request: Request) {
 
     const today = dateKey();
     const [leads, tasks] = await Promise.all([
-      supabaseGet<LeadRow[]>("leads", "select=id,business_name,priority,status,deal_value,follow_up_date,next_action,updated_at,created_at&order=follow_up_date.asc"),
+      getLeadsForBot(),
       supabaseGet<TaskRow[]>("tasks", "select=id,title,type,related_lead_id,due_date,status&order=due_date.asc")
     ]);
 
