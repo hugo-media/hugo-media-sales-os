@@ -401,7 +401,7 @@ export async function findLeadCandidates(options: { limit?: number; city?: strin
   const selectedCategories = categories.length ? categories : categoryQueries.slice(0, 4);
   const [leads, existingCandidates] = await Promise.all([
     supabaseRequest<LeadLookup[]>("leads", "select=id,business_name,city,website_url,instagram_url,facebook_url,phone,email"),
-    supabaseRequest<LeadCandidate[]>("lead_candidates", "select=*")
+    readCandidateStore()
   ]);
   const found: LeadCandidate[] = [];
   const overpassUrl = process.env.OVERPASS_API_URL || "https://overpass-api.de/api/interpreter";
