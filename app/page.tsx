@@ -413,6 +413,17 @@ const getSuggestedNextAction = (lead: Lead, today: string) => {
 
 const isLeadClosed = (lead?: Pick<Lead, "status"> | null) => Boolean(lead && ["Закриті", "Виграно"].includes(visibleLeadStatus(lead.status)));
 
+const isTaskForClosedLead = (task: Pick<Task, "related_lead_id" | "title">, leads: Lead[]) => {
+  const relatedLead = leads.find((lead) => lead.id === task.related_lead_id);
+  if (relatedLead) return isLeadClosed(relatedLead);
+  if (task.related_lead_id) return false;
+  const taskTitle = task.title.toLowerCase();
+  return leads.some((lead) => {
+    const businessName = lead.business_name.trim().toLowerCase();
+    return isLeadClosed(lead) && businessName.length > 2 && taskTitle.includes(businessName);
+  });
+};
+
 const buildPersonalizedMessage = (lead: Lead) => {
   const name = lead.contact_name ? `, ${lead.contact_name}` : "";
   const angle = lead.offer_angle || `показати ${lead.business_name} не просто як послугу, а як історію людини за бізнесом`;
@@ -1657,7 +1668,7 @@ function TodayPage({
     })
     .slice(0, 9);
   const topDeal = [...activeLeads].sort((a, b) => numericValue(b.deal_value) - numericValue(a.deal_value))[0];
-  const todayTasks = tasks.filter((task) => task.due_date <= today && !["Done", "Cancelled"].includes(task.status) && !isLeadClosed(leads.find((lead) => lead.id === task.related_lead_id))).slice(0, 6);
+  const todayTasks = tasks.filter((task) => task.due_date && task.due_date <= today && !["Done", "Cancelled"].includes(task.status) && !isTaskForClosedLead(task, leads)).slice(0, 6);
   const firstPriorityLead = overdueLeads[0] ?? actionQueue[0] ?? null;
 
   async function copyLeadMessage(lead: Lead) {
@@ -1814,7 +1825,7 @@ function Dashboard({ today, stats, leads, tasks, packages, dailyTargets, onDaily
   onOpenLead: (id: string) => void;
   onStatus: (id: string, status: LeadStatus) => void;
 }) {
-  const todayTasks = tasks.filter((task) => task.due_date <= today && !["Done", "Cancelled"].includes(task.status) && !isLeadClosed(leads.find((lead) => lead.id === task.related_lead_id)));
+  const todayTasks = tasks.filter((task) => task.due_date && task.due_date <= today && !["Done", "Cancelled"].includes(task.status) && !isTaskForClosedLead(task, leads));
   const dueFollowUps = leads
     .filter((lead) => lead.follow_up_date && lead.follow_up_date <= today && !["Виграно", "Закриті"].includes(visibleLeadStatus(lead.status)))
     .sort((a, b) => a.follow_up_date.localeCompare(b.follow_up_date));
@@ -2563,15 +2574,14 @@ function TasksPage({ today, tomorrow, tasks, leads, onDone, setTasks }: { today:
   const [statusFilter, setStatusFilter] = useState("Усі");
   const [editing, setEditing] = useState<Task | null>(null);
   const filtered = tasks.filter((task) => {
-    const relatedLead = leads.find((lead) => lead.id === task.related_lead_id);
     return (
-      !isLeadClosed(relatedLead) &&
+      !isTaskForClosedLead(task, leads) &&
       (typeFilter === "Усі" || task.type === typeFilter) &&
       (statusFilter === "Усі" || task.status === statusFilter)
     );
   });
   const groups = [
-    ["Прострочені", filtered.filter((task) => task.due_date < today && !["Done", "Cancelled"].includes(task.status))],
+    ["Прострочені", filtered.filter((task) => task.due_date && task.due_date < today && !["Done", "Cancelled"].includes(task.status))],
     ["Сьогодні", filtered.filter((task) => task.due_date === today)],
     ["Завтра", filtered.filter((task) => task.due_date === tomorrow)],
     ["Усі задачі", filtered]
@@ -2773,21 +2783,21 @@ function CalendarPage({
   while (calendarCells.length % 7 !== 0) calendarCells.push("");
   const tomorrow = addDays(today, 1);
   const activeLeads = leads.filter((lead) => !isLeadClosed(lead));
-  const openTasks = tasks.filter((task) => !["Done", "Cancelled"].includes(task.status) && !isLeadClosed(leads.find((lead) => lead.id === task.related_lead_id)));
+  const openTasks = tasks.filter((task) => !["Done", "Cancelled"].includes(task.status) && !isTaskForClosedLead(task, leads));
   const overdueLeads = activeLeads.filter((lead) => lead.follow_up_date && lead.follow_up_date < today);
   const todayLeads = activeLeads.filter((lead) => lead.follow_up_date === today);
   const tomorrowLeads = activeLeads.filter((lead) => lead.follow_up_date === tomorrow);
-  const overdueTasks = openTasks.filter((task) => task.due_date < today);
+  const overdueTasks = openTasks.filter((task) => task.due_date && task.due_date < today);
   const todayTasks = openTasks.filter((task) => task.due_date === today);
   const monthLeads = activeLeads.filter((lead) => lead.follow_up_date?.startsWith(monthKey));
-  const monthTasks = openTasks.filter((task) => task.due_date.startsWith(monthKey));
+  const monthTasks = openTasks.filter((task) => task.due_date && task.due_date.startsWith(monthKey));
   const monthContent = contentItems.filter((item) => item.date.startsWith(monthKey));
   const priorityLeads = [...activeLeads]
     .filter((lead) => lead.follow_up_date && lead.follow_up_date <= today)
     .sort((a, b) => getLeadScore(b, today) - getLeadScore(a, today))
     .slice(0, 5);
   const priorityTasks = [...openTasks]
-    .filter((task) => task.due_date <= today)
+    .filter((task) => task.due_date && task.due_date <= today)
     .sort((a, b) => {
       const priorityOrder: Record<Task["priority"], number> = { High: 3, Medium: 2, Low: 1 };
       return priorityOrder[b.priority] - priorityOrder[a.priority];
@@ -2918,7 +2928,7 @@ function CalendarPage({
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="font-semibold">{task.title}</div>
-                    <div className="mt-1 text-xs text-slate-400">{task.due_date < today ? "прострочено" : "сьогодні"} · {task.priority} · {task.type}</div>
+                    <div className="mt-1 text-xs text-slate-400">{task.due_date && task.due_date < today ? "прострочено" : "сьогодні"} · {task.priority} · {task.type}</div>
                   </div>
                   <IconButton label="Виконано" onClick={() => completeTask(task.id)}><Check className="h-4 w-4" /></IconButton>
                 </div>
