@@ -80,7 +80,23 @@ const countryCities: Record<string, string[]> = {
   cz: ["Praha", "Brno", "Ostrava", "Plzeň"],
   slovakia: ["Bratislava", "Košice", "Žilina"],
   словаччина: ["Bratislava", "Košice", "Žilina"],
-  sk: ["Bratislava", "Košice", "Žilina"]
+  sk: ["Bratislava", "Košice", "Žilina"],
+  austria: ["Wien", "Graz", "Linz", "Salzburg"],
+  австрія: ["Wien", "Graz", "Linz", "Salzburg"],
+  netherlands: ["Amsterdam", "Rotterdam", "Den Haag", "Utrecht"],
+  нідерланди: ["Amsterdam", "Rotterdam", "Den Haag", "Utrecht"],
+  france: ["Paris", "Lyon", "Marseille", "Nice"],
+  франція: ["Paris", "Lyon", "Marseille", "Nice"],
+  spain: ["Madrid", "Barcelona", "Valencia", "Málaga"],
+  іспанія: ["Madrid", "Barcelona", "Valencia", "Málaga"],
+  italy: ["Roma", "Milano", "Napoli", "Torino"],
+  італія: ["Roma", "Milano", "Napoli", "Torino"],
+  portugal: ["Lisboa", "Porto", "Braga"],
+  португалія: ["Lisboa", "Porto", "Braga"],
+  belgium: ["Bruxelles", "Antwerpen", "Gent"],
+  бельгія: ["Bruxelles", "Antwerpen", "Gent"],
+  ireland: ["Dublin", "Cork", "Galway"],
+  ірландія: ["Dublin", "Cork", "Galway"]
 };
 const categoryQueries = [
   { niche: "Легалізація / юристи", tags: ['["office"="lawyer"]', '["name"~"legal|legalizacja|kancelaria|pobyt|immigration|visa|адвокат|юрист",i]'] },

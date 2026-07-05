@@ -62,6 +62,31 @@ type TelegramUpdate = {
 
 const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || "";
 const appUrl = (rawAppUrl && !rawAppUrl.startsWith("http") ? `https://${rawAppUrl}` : rawAppUrl).replace(/\/$/, "");
+const leadFinderNiches = [
+  { key: "legal", label: "Легалізація / юристи", query: "Легалізація" },
+  { key: "accounting", label: "Бухгалтерія", query: "Бухгалтерія" },
+  { key: "beauty", label: "Beauty", query: "Beauty" },
+  { key: "auto", label: "Авто", query: "Авто" },
+  { key: "education", label: "Освіта", query: "Освіта" },
+  { key: "realestate", label: "Нерухомість", query: "Нерухомість" },
+  { key: "insurance", label: "Страхування", query: "Страхування" },
+  { key: "medical", label: "Медицина", query: "Медицина" },
+  { key: "translator", label: "Переклади", query: "Переклади" }
+];
+const leadFinderCountries = [
+  { key: "poland", label: "Польща" },
+  { key: "germany", label: "Німеччина" },
+  { key: "czechia", label: "Чехія" },
+  { key: "slovakia", label: "Словаччина" },
+  { key: "austria", label: "Австрія" },
+  { key: "netherlands", label: "Нідерланди" },
+  { key: "france", label: "Франція" },
+  { key: "spain", label: "Іспанія" },
+  { key: "italy", label: "Італія" },
+  { key: "portugal", label: "Португалія" },
+  { key: "belgium", label: "Бельгія" },
+  { key: "ireland", label: "Ірландія" }
+];
 
 function escapeHtml(value: string) {
   return value
@@ -172,7 +197,7 @@ async function sendTelegram(chatId: number | string, text: string, replyMarkup?:
       parse_mode: "HTML",
       reply_markup: replyMarkup ?? {
         keyboard: [
-          [{ text: "⚡ Що робити зараз" }, { text: "🔎 /find30" }],
+          [{ text: "⚡ Що робити зараз" }, { text: "🔎 Пошук лідів" }],
           [{ text: "📞 Дзвінки" }, { text: "🔥 Кому писати" }],
           [{ text: "⏰ Прострочені" }, { text: "💶 Pipeline" }, { text: "📋 /candidates" }],
           [{ text: "Відкрити CRM" }]
@@ -185,6 +210,37 @@ async function sendTelegram(chatId: number | string, text: string, replyMarkup?:
   if (!response.ok) {
     throw new Error(`Telegram ${response.status}: ${await response.text()}`);
   }
+}
+
+function leadFinderNicheKeyboard() {
+  return {
+    inline_keyboard: [
+      ...leadFinderNiches.reduce<Array<Array<{ text: string; callback_data: string }>>>((rows, niche, index) => {
+        if (index % 2 === 0) rows.push([]);
+        rows[rows.length - 1].push({ text: niche.label, callback_data: `find_niche:${niche.key}` });
+        return rows;
+      }, [])
+    ]
+  };
+}
+
+function leadFinderCountryKeyboard(nicheKey: string) {
+  return {
+    inline_keyboard: [
+      ...leadFinderCountries.reduce<Array<Array<{ text: string; callback_data: string }>>>((rows, country, index) => {
+        if (index % 2 === 0) rows.push([]);
+        rows[rows.length - 1].push({ text: country.label, callback_data: `find_country:${nicheKey}:${country.key}` });
+        return rows;
+      }, [])
+    ]
+  };
+}
+
+async function runLeadFinder(chatId: number | string, nicheQuery?: string, countryOrCity?: string, limit = 10) {
+  await sendTelegram(chatId, `Шукаю кандидатів: <b>${escapeHtml(nicheQuery || "усі ніші")}</b> · <b>${escapeHtml(countryOrCity || "Європа")}</b>`);
+  const candidates = await findLeadCandidates({ limit, nicheQuery, city: countryOrCity });
+  await sendTelegram(chatId, `Знайшов ${candidates.length} кандидатів без дублів.`);
+  await sendCandidateCards(chatId, candidates);
 }
 
 async function answerCallback(callbackId: string, text: string) {
@@ -401,7 +457,28 @@ export async function POST(request: Request) {
     const update = (await request.json()) as TelegramUpdate;
     const callback = update.callback_query;
     if (callback?.data && callback.message?.chat?.id) {
-      const [action, id] = callback.data.split(":");
+      const [action, id, extra] = callback.data.split(":");
+      if (action === "find_niche") {
+        const niche = leadFinderNiches.find((item) => item.key === id);
+        if (!niche) {
+          await answerCallback(callback.id, "Ніша не знайдена");
+          return Response.json({ ok: true });
+        }
+        await answerCallback(callback.id, niche.label);
+        await sendTelegram(callback.message.chat.id, `Обери країну для ніші: <b>${escapeHtml(niche.label)}</b>`, leadFinderCountryKeyboard(niche.key));
+        return Response.json({ ok: true });
+      }
+      if (action === "find_country") {
+        const niche = leadFinderNiches.find((item) => item.key === id);
+        const country = leadFinderCountries.find((item) => item.key === extra);
+        if (!niche || !country) {
+          await answerCallback(callback.id, "Не знайшла вибір");
+          return Response.json({ ok: true });
+        }
+        await answerCallback(callback.id, `${niche.label} · ${country.label}`);
+        await runLeadFinder(callback.message.chat.id, niche.query, country.key, 10);
+        return Response.json({ ok: true });
+      }
       if (action === "candidate_add" || action === "candidate_hot") {
         const candidate = await addCandidateToCrm(id, action === "candidate_hot" ? "Hot" : "Medium");
         await answerCallback(callback.id, action === "candidate_hot" ? "Додано як Hot" : "Додано в CRM");
@@ -432,24 +509,21 @@ export async function POST(request: Request) {
     }
 
     const lowerText = text.toLowerCase();
-    if (lowerText === "/find30" || text === "🔎 /find30" || lowerText.startsWith("/find ")) {
-      await sendTelegram(chatId, "Шукаю кандидатів через OpenStreetMap. Формат: /find <ніша> <країна або місто>. Наприклад: /find Легалізація Польща");
+    if (lowerText === "/find" || lowerText === "/find30" || text === "🔎 /find30" || text === "🔎 Пошук лідів") {
+      await sendTelegram(chatId, "Обери нішу для пошуку лідів:", leadFinderNicheKeyboard());
+      return Response.json({ ok: true });
+    }
+
+    if (lowerText.startsWith("/find ")) {
       const parts = text.split(/\s+/).slice(1);
       const maybeLocation = parts.length > 1 ? parts[parts.length - 1] : undefined;
       const maybeNiche = parts.length > 1 ? parts.slice(0, -1).join(" ") : parts[0];
-      let candidates: LeadCandidate[] = [];
       try {
-        candidates = await findLeadCandidates({
-          limit: lowerText === "/find30" || text === "🔎 /find30" ? 30 : 10,
-          nicheQuery: maybeNiche,
-          city: maybeLocation
-        });
+        await runLeadFinder(chatId, maybeNiche, maybeLocation, 10);
       } catch (error) {
         await sendTelegram(chatId, `Overpass зараз не відповідає або Supabase не готовий: ${escapeHtml(error instanceof Error ? error.message : "невідома помилка")}`);
         return Response.json({ ok: true });
       }
-      await sendTelegram(chatId, `Знайшов ${candidates.length} кандидатів без дублів.`);
-      await sendCandidateCards(chatId, candidates);
       return Response.json({ ok: true });
     }
 
@@ -461,7 +535,7 @@ export async function POST(request: Request) {
 
     const knownActions = ["/start", "/status", "/today", "/hot", "/followups", "/kpi", "⚡ Що робити зараз", "📊 Статус зараз", "📞 Дзвінки", "🔥 Кому писати", "⏰ Прострочені", "💶 Pipeline"];
     if (!knownActions.includes(text)) {
-      await sendTelegram(chatId, "Напиши <b>/find НІША КРАЇНА</b>, наприклад <b>/find Легалізація Польща</b>. Або натисни <b>/candidates</b>, <b>⚡ Що робити зараз</b>, <b>📞 Дзвінки</b>, <b>🔥 Кому писати</b>.");
+      await sendTelegram(chatId, "Натисни <b>🔎 Пошук лідів</b>, обери нішу і країну. Або натисни <b>/candidates</b>, <b>⚡ Що робити зараз</b>, <b>📞 Дзвінки</b>, <b>🔥 Кому писати</b>.");
       return Response.json({ ok: true });
     }
 
