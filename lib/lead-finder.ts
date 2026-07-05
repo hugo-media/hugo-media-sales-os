@@ -50,6 +50,18 @@ type OverpassResponse = {
   elements?: OverpassElement[];
 };
 
+type NominatimPlace = {
+  osm_type: "node" | "way" | "relation";
+  osm_id: number;
+  display_name: string;
+  name?: string;
+  type?: string;
+  category?: string;
+  address?: Record<string, string>;
+  extratags?: Record<string, string>;
+  namedetails?: Record<string, string>;
+};
+
 const defaultCities = ["Warszawa", "Kraków", "Wrocław", "Poznań", "Gdańsk", "Łódź"];
 const cityAliases: Record<string, string> = {
   warszawa: "Warszawa",
@@ -141,6 +153,17 @@ const nicheAliases: Record<string, string[]> = {
 };
 const targetKeywords = ["ukrain", "ukraiń", "ukraina", "україн", "pobyt", "legalizacja", "karta pobytu", "cudzoziem", "księgowość", "biuro rachunkowe", "beauty", "auto"];
 const candidateSettingsKey = "lead_candidates";
+const searchTermsByNiche: Record<string, string[]> = {
+  "Легалізація / юристи": ["legalizacja pobytu", "kancelaria prawna", "immigration lawyer", "visa lawyer", "legal office"],
+  "Бухгалтерія": ["biuro rachunkowe", "accounting office", "księgowość", "tax advisor"],
+  Beauty: ["beauty salon", "salon kosmetyczny", "hair salon", "nail salon", "barber"],
+  Авто: ["auto serwis", "car repair", "mechanic", "garage", "tire service"],
+  Освіта: ["language school", "szkoła językowa", "courses", "education center"],
+  Нерухомість: ["real estate agency", "nieruchomości", "property agency"],
+  Страхування: ["insurance agency", "ubezpieczenia", "insurance broker"],
+  Медицина: ["clinic", "medical center", "dentist", "doctor"],
+  Переклади: ["translation office", "tłumacz", "translator"]
+};
 
 export function dateKey(timeZone = process.env.TELEGRAM_TIME_ZONE || "Europe/Kyiv") {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -315,6 +338,39 @@ function mapOverpassElement(element: OverpassElement, niche: string, city: strin
   };
 }
 
+function mapNominatimPlace(place: NominatimPlace, niche: string, city: string): Omit<LeadCandidate, "media_score" | "media_level" | "media_notes" | "why_good_for_hugo"> | null {
+  const details = place.namedetails ?? {};
+  const tags = place.extratags ?? {};
+  const address = place.address ?? {};
+  const businessName = (place.name || details.name || details["name:en"] || place.display_name.split(",")[0] || "").trim();
+  if (!businessName || businessName.length < 3) return null;
+  const website = cleanUrl(tags.website || tags.url || tags["contact:website"] || "");
+  const instagram = cleanUrl(tags.instagram || tags["contact:instagram"] || "");
+  const facebook = cleanUrl(tags.facebook || tags["contact:facebook"] || "");
+  const phone = tags.phone || tags["contact:phone"] || "";
+  const email = tags.email || tags["contact:email"] || "";
+  return {
+    id: crypto.randomUUID(),
+    business_name: businessName,
+    niche,
+    city: address.city || address.town || address.village || city,
+    address: place.display_name,
+    website_url: website,
+    instagram_url: instagram,
+    facebook_url: facebook,
+    tiktok_url: "",
+    youtube_url: "",
+    linkedin_url: "",
+    phone,
+    email,
+    osm_url: `https://www.openstreetmap.org/${place.osm_type}/${place.osm_id}`,
+    source: "OpenStreetMap",
+    status: "Candidate",
+    created_at: dateKey(),
+    updated_at: dateKey()
+  };
+}
+
 function normalizeLookup(value = "") {
   return value.trim().toLowerCase().replace(/\s+/g, "");
 }
@@ -351,6 +407,61 @@ area["name"="${city}"]["boundary"="administrative"]->.searchArea;
 ${selectors}
 );
 out center tags 80;`;
+}
+
+function nominatimTerms(niche: string, nicheQuery?: string) {
+  const custom = nicheQuery?.trim();
+  const terms = searchTermsByNiche[niche] ?? [];
+  return [...new Set([...(custom ? [custom] : []), ...terms])].slice(0, 5);
+}
+
+async function findNominatimCandidates(options: {
+  cities: string[];
+  categories: Array<{ niche: string; tags: string[] }>;
+  nicheQuery?: string;
+  leads: LeadLookup[];
+  existingCandidates: LeadCandidate[];
+  found: LeadCandidate[];
+  limit: number;
+}) {
+  const endpoint = process.env.NOMINATIM_API_URL || "https://nominatim.openstreetmap.org/search";
+  for (const city of options.cities) {
+    for (const category of options.categories) {
+      for (const term of nominatimTerms(category.niche, options.nicheQuery)) {
+        if (options.found.length >= options.limit) return;
+        let places: NominatimPlace[] = [];
+        try {
+          const url = new URL(endpoint);
+          url.searchParams.set("format", "jsonv2");
+          url.searchParams.set("addressdetails", "1");
+          url.searchParams.set("extratags", "1");
+          url.searchParams.set("namedetails", "1");
+          url.searchParams.set("limit", "8");
+          url.searchParams.set("q", `${term} ${city}`);
+          const response = await fetchWithTimeout(url.toString(), {
+            headers: {
+              "accept-language": "uk,en,pl",
+              "user-agent": "HugoMediaSalesOS/1.0"
+            }
+          }, 10_000);
+          if (!response.ok) continue;
+          places = (await response.json()) as NominatimPlace[];
+        } catch {
+          continue;
+        }
+
+        for (const place of places) {
+          if (options.found.length >= options.limit) return;
+          const base = mapNominatimPlace(place, category.niche, city);
+          if (!base) continue;
+          const score = candidateScore(base, `${base.business_name} ${base.niche} ${base.address} ${place.type ?? ""} ${place.category ?? ""}`);
+          const candidate: LeadCandidate = { ...base, ...score };
+          if (hasDuplicate(candidate, options.leads, [...options.existingCandidates, ...options.found])) continue;
+          options.found.push(candidate);
+        }
+      }
+    }
+  }
 }
 
 function duplicateKeyParts(candidate: Pick<LeadCandidate, "business_name" | "city" | "website_url" | "instagram_url" | "facebook_url" | "phone" | "email" | "osm_url">) {
@@ -516,6 +627,18 @@ export async function findLeadCandidates(options: { limit?: number; city?: strin
         found.push(candidate);
       }
     }
+  }
+
+  if (found.length < Math.min(5, limit)) {
+    await findNominatimCandidates({
+      cities,
+      categories: selectedCategories,
+      nicheQuery: options.nicheQuery,
+      leads,
+      existingCandidates,
+      found,
+      limit
+    });
   }
 
   await saveCandidates(found);
