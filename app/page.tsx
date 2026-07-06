@@ -25,7 +25,7 @@ import {
   Users,
   X
 } from "lucide-react";
-import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
+import { type RefObject, type SetStateAction, useEffect, useMemo, useRef, useState } from "react";
 
 type LeadStatus =
   | "Новий"
@@ -1134,16 +1134,7 @@ function mergeSettings(settings?: Partial<AppSettings> | null): AppSettings {
   };
 }
 
-function recoverLocalLeads(remoteSnapshot: CrmSnapshot, localSnapshot: CrmSnapshot | null) {
-  if (!localSnapshot?.leads.length || remoteSnapshot.leads.length) {
-    return { snapshot: remoteSnapshot, shouldSync: false };
-  }
-
-  return {
-    snapshot: { ...remoteSnapshot, leads: localSnapshot.leads },
-    shouldSync: true
-  };
-}
+type SyncStatus = "loading" | "saved" | "saving" | "error" | "local";
 
 async function supabaseRequest<T>(
   connection: SupabaseConnection,
@@ -1331,7 +1322,7 @@ async function persistLead(connection: SupabaseConnection, lead: Lead) {
   }
 }
 
-function syncSupabaseSnapshot(connection: SupabaseConnection, snapshot: CrmSnapshot) {
+async function syncSupabaseSnapshot(connection: SupabaseConnection, snapshot: CrmSnapshot) {
   const upsertLeads = async () => {
     try {
       await upsertRows(connection, "leads", snapshot.leads.map(leadToRow));
@@ -1341,7 +1332,7 @@ function syncSupabaseSnapshot(connection: SupabaseConnection, snapshot: CrmSnaps
     }
   };
 
-  void Promise.all([
+  await Promise.all([
     upsertLeads(),
     upsertRows(connection, "tasks", snapshot.tasks.map(cleanTask)),
     upsertRows(connection, "content_items", snapshot.contentItems.map(contentToRow)),
@@ -1354,19 +1345,15 @@ function syncSupabaseSnapshot(connection: SupabaseConnection, snapshot: CrmSnaps
       },
       body: JSON.stringify([{ key: "app", value: snapshot.settings }])
     })
-  ]).catch((error) => {
-    console.error("Supabase sync failed", error);
-  });
+  ]);
 }
 
-function deleteSupabaseRows(connection: SupabaseConnection, table: string, filter: string) {
-  void supabaseRequest<null>(connection, table, filter, {
+async function deleteSupabaseRows(connection: SupabaseConnection, table: string, filter: string) {
+  await supabaseRequest<null>(connection, table, filter, {
     method: "DELETE",
     headers: {
       Prefer: "return=minimal"
     }
-  }).catch((error) => {
-    console.error("Supabase delete failed", error);
   });
 }
 
@@ -1384,6 +1371,8 @@ export default function SalesOs() {
   const [isHydrated, setIsHydrated] = useState(false);
   const [dataSource, setDataSource] = useState<"local" | "supabase">(supabase ? "supabase" : "local");
   const [dataSourceNote, setDataSourceNote] = useState("");
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(supabase ? "loading" : "local");
+  const [syncMessage, setSyncMessage] = useState(supabase ? "Підключаю базу..." : "База не підключена");
   const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("Усі");
@@ -1439,11 +1428,9 @@ export default function SalesOs() {
         setSettings(mergeSettings(snapshot.settings));
       };
 
-      if (localSnapshot) {
-        applySnapshot(localSnapshot);
-      }
-
       if (supabase) {
+        setSyncStatus("loading");
+        setSyncMessage("Завантажую дані з Supabase...");
         const [{ snapshot: remoteSnapshot, error }, remoteCandidates, remoteTopicRuns] = await Promise.all([
           fetchSupabaseSnapshot(supabase),
           fetchLeadCandidates(supabase),
@@ -1454,27 +1441,29 @@ export default function SalesOs() {
         setDailyTopicRuns(remoteTopicRuns);
 
         if (remoteSnapshot) {
-          const remoteHasData =
-            remoteSnapshot.leads.length ||
-            remoteSnapshot.tasks.length ||
-            remoteSnapshot.contentItems.length ||
-            remoteSnapshot.templates.length ||
-            remoteSnapshot.history.length;
-          const recovered = remoteHasData ? recoverLocalLeads(remoteSnapshot, localSnapshot) : { snapshot: localSnapshot ?? seedSnapshot, shouldSync: true };
-          const nextSnapshot = recovered.snapshot;
-          applySnapshot(nextSnapshot);
-          writeLocalSnapshot(nextSnapshot);
-          if (!remoteHasData || recovered.shouldSync) {
-            syncSupabaseSnapshot(supabase, nextSnapshot);
-          }
+          applySnapshot(remoteSnapshot);
+          writeLocalSnapshot(remoteSnapshot);
           setDataSource("supabase");
           setDataSourceNote("");
+          setSyncStatus("saved");
+          setSyncMessage("База підключена");
         } else {
+          if (localSnapshot) {
+            applySnapshot(localSnapshot);
+          }
           setDataSource("local");
-          setDataSourceNote(`Supabase не підключився: ${error ?? "невідома помилка"}`);
+          const message = `Supabase не підключився: ${error ?? "невідома помилка"}`;
+          setDataSourceNote(message);
+          setSyncStatus("error");
+          setSyncMessage(message);
         }
       } else {
+        if (localSnapshot) {
+          applySnapshot(localSnapshot);
+        }
         setDataSourceNote("Supabase змінні не задані у Vercel.");
+        setSyncStatus("local");
+        setSyncMessage("База не підключена");
       }
 
       setIsHydrated(true);
@@ -1492,26 +1481,63 @@ export default function SalesOs() {
     writeLocalSnapshot(snapshot);
 
     if (!supabase || dataSource !== "supabase") return;
-    const timer = window.setTimeout(() => syncSupabaseSnapshot(supabase, snapshot), 450);
+    setSyncStatus("saving");
+    setSyncMessage("Зберігаю в Supabase...");
+    const timer = window.setTimeout(() => {
+      syncSupabaseSnapshot(supabase, snapshot)
+        .then(() => {
+          setSyncStatus("saved");
+          setSyncMessage(`Збережено в базу ${new Date().toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" })}`);
+        })
+        .catch((error) => {
+          console.error("Supabase sync failed", error);
+          const message = error instanceof Error ? error.message : "невідома помилка";
+          setSyncStatus("error");
+          setSyncMessage(`Помилка збереження: ${message}`);
+          setToast("Не вдалося зберегти зміни в Supabase");
+        });
+    }, 450);
     return () => window.clearTimeout(timer);
   }, [contentItems, dataSource, history, isHydrated, leads, settings, tasks, templates]);
 
   useEffect(() => {
     if (!isHydrated || !supabase || dataSource !== "supabase") return;
+    setSyncStatus("saving");
+    setSyncMessage("Зберігаю кандидатів у Supabase...");
     const timer = window.setTimeout(() => {
-      persistLeadCandidates(supabase, leadCandidates).catch((error) => {
-        console.error("Lead candidates sync failed", error);
-      });
+      persistLeadCandidates(supabase, leadCandidates)
+        .then(() => {
+          setSyncStatus("saved");
+          setSyncMessage(`Кандидати збережені ${new Date().toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" })}`);
+        })
+        .catch((error) => {
+          console.error("Lead candidates sync failed", error);
+          const message = error instanceof Error ? error.message : "невідома помилка";
+          setSyncStatus("error");
+          setSyncMessage(`Помилка кандидатів: ${message}`);
+          setToast("Не вдалося зберегти кандидатів у Supabase");
+        });
     }, 450);
     return () => window.clearTimeout(timer);
   }, [dataSource, isHydrated, leadCandidates]);
 
   useEffect(() => {
     if (!isHydrated || !supabase || dataSource !== "supabase") return;
+    setSyncStatus("saving");
+    setSyncMessage("Зберігаю теми дня у Supabase...");
     const timer = window.setTimeout(() => {
-      persistDailyTopicRuns(supabase, dailyTopicRuns).catch((error) => {
-        console.error("Daily topics sync failed", error);
-      });
+      persistDailyTopicRuns(supabase, dailyTopicRuns)
+        .then(() => {
+          setSyncStatus("saved");
+          setSyncMessage(`Теми збережені ${new Date().toLocaleTimeString("uk-UA", { hour: "2-digit", minute: "2-digit" })}`);
+        })
+        .catch((error) => {
+          console.error("Daily topics sync failed", error);
+          const message = error instanceof Error ? error.message : "невідома помилка";
+          setSyncStatus("error");
+          setSyncMessage(`Помилка тем: ${message}`);
+          setToast("Не вдалося зберегти теми дня в Supabase");
+        });
     }, 450);
     return () => window.clearTimeout(timer);
   }, [dailyTopicRuns, dataSource, isHydrated]);
@@ -1617,6 +1643,34 @@ export default function SalesOs() {
     return isCallLeadStatus(status);
   }
 
+  function canWriteToDatabase() {
+    if (supabase && dataSource === "supabase") return true;
+    setSyncStatus("error");
+    setSyncMessage("База не підключена. Зміна не збережена.");
+    setToast("База не підключена. Зміна не збережена.");
+    return false;
+  }
+
+  function setTasksFromUi(update: SetStateAction<Task[]>) {
+    if (!canWriteToDatabase()) return;
+    setTasks(update);
+  }
+
+  function setContentItemsFromUi(update: SetStateAction<ContentItem[]>) {
+    if (!canWriteToDatabase()) return;
+    setContentItems(update);
+  }
+
+  function setTemplatesFromUi(update: SetStateAction<Template[]>) {
+    if (!canWriteToDatabase()) return;
+    setTemplates(update);
+  }
+
+  function setSettingsFromUi(update: SetStateAction<AppSettings>) {
+    if (!canWriteToDatabase()) return;
+    setSettings(update);
+  }
+
   function upsertCallTaskForLead(lead: Lead) {
     const dueDate = lead.follow_up_date || today;
     setTasks((current) => {
@@ -1654,6 +1708,7 @@ export default function SalesOs() {
   }
 
   function patchLead(leadId: string, patch: Partial<Lead>) {
+    if (!canWriteToDatabase()) return;
     const normalizedPatch = normalizeLeadPatch(patch);
     const currentLead = leads.find((lead) => lead.id === leadId);
     if (!currentLead) return;
@@ -1673,6 +1728,7 @@ export default function SalesOs() {
   }
 
   function updateLeadStatus(leadId: string, status: LeadStatus) {
+    if (!canWriteToDatabase()) return;
     const baseDate = today;
     const currentLead = leads.find((lead) => lead.id === leadId);
     if (!currentLead) return;
@@ -1775,6 +1831,7 @@ export default function SalesOs() {
   }
 
   function closeLead(leadId: string) {
+    if (!canWriteToDatabase()) return;
     const currentLead = leads.find((lead) => lead.id === leadId);
     if (!currentLead) return;
 
@@ -1824,6 +1881,9 @@ export default function SalesOs() {
   }
 
   async function saveLead(lead: Lead) {
+    if (!canWriteToDatabase()) {
+      throw new Error("Supabase is not connected");
+    }
     const leadToSave = normalizeLeadDates({
       ...lead,
       business_name: lead.business_name.trim(),
@@ -1853,12 +1913,28 @@ export default function SalesOs() {
   }
 
   function deleteLead(id: string) {
+    if (!canWriteToDatabase()) return;
     setLeads((current) => current.filter((lead) => lead.id !== id));
     setTasks((current) => current.filter((task) => task.related_lead_id !== id));
     setHistory((current) => current.filter((item) => item.lead_id !== id));
     if (supabase && dataSource === "supabase") {
-      deleteSupabaseRows(supabase, "tasks", `related_lead_id=eq.${encodeURIComponent(id)}`);
-      deleteSupabaseRows(supabase, "leads", `id=eq.${encodeURIComponent(id)}`);
+      setSyncStatus("saving");
+      setSyncMessage("Видаляю лід із Supabase...");
+      Promise.all([
+        deleteSupabaseRows(supabase, "tasks", `related_lead_id=eq.${encodeURIComponent(id)}`),
+        deleteSupabaseRows(supabase, "leads", `id=eq.${encodeURIComponent(id)}`)
+      ])
+        .then(() => {
+          setSyncStatus("saved");
+          setSyncMessage("Ліда видалено з бази");
+        })
+        .catch((error) => {
+          console.error("Lead delete failed", error);
+          const message = error instanceof Error ? error.message : "невідома помилка";
+          setSyncStatus("error");
+          setSyncMessage(`Помилка видалення: ${message}`);
+          setToast("Не вдалося видалити ліда в Supabase");
+        });
     }
     if (selectedLeadId === id) {
       setSelectedLeadId(null);
@@ -1867,17 +1943,20 @@ export default function SalesOs() {
   }
 
   function markTaskDone(id: string) {
+    if (!canWriteToDatabase()) return;
     setTasks((current) =>
       current.map((task) => (task.id === id ? { ...task, status: "Done", updated_at: today } : task))
     );
   }
 
   function importLeads(nextLeads: Lead[]) {
+    if (!canWriteToDatabase()) return;
     setLeads((current) => [...nextLeads.map(normalizeLeadDates), ...current]);
     setToast(`Імпортовано лідів: ${nextLeads.length}`);
   }
 
   function updateCandidateStatus(candidateId: string, status: LeadCandidateStatus) {
+    if (!canWriteToDatabase()) return;
     setLeadCandidates((current) =>
       current.map((candidate) =>
         candidate.id === candidateId
@@ -1888,6 +1967,7 @@ export default function SalesOs() {
   }
 
   async function addCandidateToLeads(candidateId: string, priority: LeadPriority = "Medium") {
+    if (!canWriteToDatabase()) return;
     const candidate = leadCandidates.find((item) => item.id === candidateId);
     if (!candidate) return;
 
@@ -1964,6 +2044,7 @@ export default function SalesOs() {
   }
 
   async function generateTopicsNow() {
+    if (!canWriteToDatabase()) return;
     setIsGeneratingTopics(true);
     try {
       const response = await fetch("/api/content/daily-topics?manual=1&send=telegram", { cache: "no-store" });
@@ -1981,6 +2062,7 @@ export default function SalesOs() {
   }
 
   function patchDailyTopic(runId: string, topicId: string, patch: Partial<DailyContentTopic>) {
+    if (!canWriteToDatabase()) return;
     setDailyTopicRuns((current) =>
       current.map((run) =>
         run.id === runId
@@ -1996,6 +2078,14 @@ export default function SalesOs() {
   }
 
   const pageTitle = nav.find((item) => item.id === active)?.label ?? "Дашборд";
+  const syncPillClass =
+    syncStatus === "error"
+      ? "border-red-400/40 bg-red-500/10 text-red-200"
+      : syncStatus === "saving" || syncStatus === "loading"
+        ? "border-amber/40 bg-amber/10 text-amber-100"
+        : syncStatus === "local"
+          ? "border-red-400/40 bg-red-500/10 text-red-200"
+          : "border-mint/40 bg-mint/10 text-emerald-100";
 
   return (
     <main className={`app-shell min-h-screen transition-colors lg:grid lg:grid-cols-[280px_1fr] ${theme === "light" ? "theme-light" : "theme-dark"}`}>
@@ -2049,6 +2139,9 @@ export default function SalesOs() {
               Дані: {dataSource === "supabase" ? "Supabase" : "Demo/local browser storage"}
             </p>
             {dataSourceNote ? <p className="mt-1 text-xs text-amber-300">{dataSourceNote}</p> : null}
+            <div className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${syncPillClass}`}>
+              {syncMessage}
+            </div>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -2095,7 +2188,7 @@ export default function SalesOs() {
             onCopied={() => setToast("Текст скопійовано")}
           />
         ) : active === "dashboard" ? (
-          <Dashboard today={today} stats={stats} leads={leads} tasks={tasks} packages={activePackages} dailyTargets={settings.dailyTargets} monthlyRevenueTarget={settings.kpiTargets.monthly_revenue} onDailyTargetsChange={(dailyTargets) => setSettings((current) => ({ ...current, dailyTargets }))} onResetDailyTargets={() => setSettings((current) => ({ ...current, dailyTargets: current.dailyTargets.map((target) => ({ ...target, done: false })) }))} onOpenSettings={() => navigate("settings")} onOpenFollowups={() => navigate("followups")} onOpenPipeline={() => navigate("pipeline")} onAddLead={() => { setEditingLead(null); setIsLeadFormOpen(true); }} onDone={markTaskDone} onOpenLead={setSelectedLeadId} onStatus={updateLeadStatus} />
+          <Dashboard today={today} stats={stats} leads={leads} tasks={tasks} packages={activePackages} dailyTargets={settings.dailyTargets} monthlyRevenueTarget={settings.kpiTargets.monthly_revenue} onDailyTargetsChange={(dailyTargets) => setSettingsFromUi((current) => ({ ...current, dailyTargets }))} onResetDailyTargets={() => setSettingsFromUi((current) => ({ ...current, dailyTargets: current.dailyTargets.map((target) => ({ ...target, done: false })) }))} onOpenSettings={() => navigate("settings")} onOpenFollowups={() => navigate("followups")} onOpenPipeline={() => navigate("pipeline")} onAddLead={() => { setEditingLead(null); setIsLeadFormOpen(true); }} onDone={markTaskDone} onOpenLead={setSelectedLeadId} onStatus={updateLeadStatus} />
         ) : active === "leads" ? (
           <LeadsPage
             leads={filteredLeads}
@@ -2141,9 +2234,9 @@ export default function SalesOs() {
             onCopied={() => setToast("Текст скопійовано")}
           />
         ) : active === "tasks" ? (
-          <TasksPage today={today} tomorrow={tomorrow} tasks={tasks} leads={leads} onDone={markTaskDone} setTasks={setTasks} />
+          <TasksPage today={today} tomorrow={tomorrow} tasks={tasks} leads={leads} onDone={markTaskDone} setTasks={setTasksFromUi} />
         ) : active === "followups" ? (
-          <FollowupsPage today={today} leads={leads} onPatch={patchLead} setTasks={setTasks} onDone={(id) => patchLead(id, { follow_up_date: "" })} onCloseLead={closeLead} onOpen={setSelectedLeadId} />
+          <FollowupsPage today={today} leads={leads} onPatch={patchLead} setTasks={setTasksFromUi} onDone={(id) => patchLead(id, { follow_up_date: "" })} onCloseLead={closeLead} onOpen={setSelectedLeadId} />
         ) : active === "calendar" ? (
           <CalendarPage
             today={today}
@@ -2152,11 +2245,11 @@ export default function SalesOs() {
             contentItems={contentItems}
             onOpenLead={setSelectedLeadId}
             onPatchLead={patchLead}
-            setTasks={setTasks}
-            setContentItems={setContentItems}
+            setTasks={setTasksFromUi}
+            setContentItems={setContentItemsFromUi}
           />
         ) : active === "content" ? (
-          <ContentPage today={today} items={contentItems} leads={leads} setItems={setContentItems} />
+          <ContentPage today={today} items={contentItems} leads={leads} setItems={setContentItemsFromUi} />
         ) : active === "dailyTopics" ? (
           <DailyTopicsPage
             runs={dailyTopicRuns}
@@ -2168,11 +2261,25 @@ export default function SalesOs() {
         ) : active === "scripts" ? (
           <TemplatesPage
             templates={templates}
-            setTemplates={setTemplates}
+            setTemplates={setTemplatesFromUi}
             onDelete={(id) => {
-              setTemplates((current) => current.filter((item) => item.id !== id));
+              if (!canWriteToDatabase()) return;
+              setTemplatesFromUi((current) => current.filter((item) => item.id !== id));
               if (supabase && dataSource === "supabase") {
-                deleteSupabaseRows(supabase, "templates", `id=eq.${encodeURIComponent(id)}`);
+                setSyncStatus("saving");
+                setSyncMessage("Видаляю скрипт із Supabase...");
+                deleteSupabaseRows(supabase, "templates", `id=eq.${encodeURIComponent(id)}`)
+                  .then(() => {
+                    setSyncStatus("saved");
+                    setSyncMessage("Скрипт видалено з бази");
+                  })
+                  .catch((error) => {
+                    console.error("Template delete failed", error);
+                    const message = error instanceof Error ? error.message : "невідома помилка";
+                    setSyncStatus("error");
+                    setSyncMessage(`Помилка видалення: ${message}`);
+                    setToast("Не вдалося видалити скрипт у Supabase");
+                  });
               }
             }}
             onCopied={() => setToast("Текст скопійовано")}
@@ -2180,7 +2287,7 @@ export default function SalesOs() {
         ) : active === "analytics" ? (
           <AnalyticsPage leads={leads} />
         ) : (
-          <SettingsPage settings={settings} onChange={setSettings} />
+          <SettingsPage settings={settings} onChange={setSettingsFromUi} />
         )}
       </section>
 
@@ -2206,16 +2313,17 @@ export default function SalesOs() {
           onCloseLead={() => closeLead(selectedLead.id)}
           onPatch={(patch) => patchLead(selectedLead.id, patch)}
           onStatus={(status) => updateLeadStatus(selectedLead.id, status)}
-          onTask={() =>
-            setTasks((current) => [
+          onTask={() => {
+            if (!canWriteToDatabase()) return;
+            setTasksFromUi((current) => [
               newTask(today, {
                 title: `Задача для ${selectedLead.business_name}`,
                 description: selectedLead.next_action,
                 related_lead_id: selectedLead.id
               }),
               ...current
-            ])
-          }
+            ]);
+          }}
           onCopied={() => setToast("Текст скопійовано")}
         />
       )}
