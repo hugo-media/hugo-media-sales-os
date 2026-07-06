@@ -191,7 +191,9 @@ async function analyzeWithOpenAI(sources: Array<{ title: string; url: string; sn
 }
 
 function normalizeTopics(topics: DailyContentTopic[], sources: Array<{ title: string; url: string; snippet: string }>) {
-  return topics.slice(0, 10).map((topic, index) => ({
+  const fallback = fallbackTopics(sources).topics;
+  const merged = [...topics, ...fallback].slice(0, 10);
+  return merged.map((topic, index) => ({
     id: topic.id || newId(`daily-topic-${index + 1}`),
     title: topic.title || `Тема ${index + 1}`,
     angle: topic.angle || "Пояснити ситуацію простою мовою.",
