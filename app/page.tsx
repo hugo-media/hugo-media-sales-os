@@ -2200,7 +2200,7 @@ export default function SalesOs() {
           templates={templates}
           today={today}
           onClose={() => setSelectedLeadId(null)}
-          onEdit={() => { setEditingLead(selectedLead); setIsLeadFormOpen(true); }}
+          onEdit={() => { setEditingLead(selectedLead); setSelectedLeadId(null); setIsLeadFormOpen(true); }}
           onDelete={() => window.confirm("Видалити лід?") && deleteLead(selectedLead.id)}
           onCloseLead={() => closeLead(selectedLead.id)}
           onPatch={(patch) => patchLead(selectedLead.id, patch)}
@@ -4873,8 +4873,8 @@ function LeadForm({ lead, packages, today, onClose, onSave }: { lead: Lead | nul
   }
 
   return (
-    <div className="fixed inset-0 z-40 overflow-y-auto bg-black/70 p-0 sm:p-4">
-      <div className="mx-auto min-h-screen max-w-4xl border border-line bg-panel p-4 pb-24 shadow-glow sm:min-h-0 sm:rounded-lg sm:p-5">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 p-0 sm:p-4">
+      <div className="mx-auto min-h-screen max-w-4xl border border-line bg-panel p-4 pb-32 shadow-glow sm:min-h-0 sm:rounded-lg sm:p-5">
         <div className="mb-5 flex items-center justify-between gap-3">
           <h2 className="text-2xl font-black">{lead ? "Редагувати лід" : "Додати лід"}</h2>
           <IconButton label="Закрити" onClick={onClose}><X className="h-4 w-4" /></IconButton>
@@ -4930,9 +4930,9 @@ function LeadForm({ lead, packages, today, onClose, onSave }: { lead: Lead | nul
           <Textarea label="Нотатки" value={form.notes} onChange={(value) => setField("notes", value)} />
         </div>
         {error ? <p className="mt-3 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">{error}</p> : null}
-        <div className="fixed inset-x-0 bottom-0 z-10 flex justify-end gap-2 border-t border-line bg-panel p-3 sm:static sm:mt-5 sm:border-t-0 sm:bg-transparent sm:p-0">
-          <button className="rounded-lg border border-line px-4 py-2 font-semibold disabled:opacity-50" disabled={isSaving} onClick={onClose}>Скасувати</button>
-          <button className="rounded-lg bg-white px-4 py-2 font-semibold text-ink disabled:opacity-60" disabled={isSaving} onClick={async () => {
+        <div className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-2 gap-2 border-t border-line bg-panel p-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] shadow-2xl sm:static sm:mt-5 sm:flex sm:justify-end sm:border-t-0 sm:bg-transparent sm:p-0 sm:shadow-none">
+          <button className="min-h-12 rounded-lg border border-line px-4 py-2 font-semibold disabled:opacity-50" disabled={isSaving} onClick={onClose}>Скасувати</button>
+          <button className="min-h-12 rounded-lg bg-white px-4 py-2 font-semibold text-ink disabled:opacity-60" disabled={isSaving} onClick={async () => {
             if (!form.business_name.trim()) {
               setError("Назва бізнесу обов'язкова.");
               return;
