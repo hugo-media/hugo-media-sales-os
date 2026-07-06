@@ -111,10 +111,26 @@ type DailyContentTopic = {
   angle: string;
   pain: string;
   hook: string;
+  hooks: string[];
   format: string;
   talking_points: string[];
+  script_45s: string;
   caption: string;
   cta: string;
+  conflict: string;
+  series: string;
+  pinned_comment: string;
+  hate_replies: string[];
+  engagement_replies: string[];
+  virality_score: number;
+  conflict_score: number;
+  comment_score: number;
+  emotion_score: number;
+  ease_score: number;
+  production_status: "Ідея" | "Зняти першим" | "Знято" | "Змонтовано" | "Опубліковано" | "Архів";
+  views: number;
+  comments: number;
+  saves: number;
   sources: Array<{ title: string; url: string; snippet: string }>;
 };
 
@@ -1152,11 +1168,72 @@ async function fetchDailyTopicRuns(connection: SupabaseConnection) {
       "settings",
       "select=key,value&key=eq.daily_tiktok_topics&limit=1"
     );
-    return Array.isArray(rows[0]?.value) ? rows[0].value ?? [] : [];
+    const runs = Array.isArray(rows[0]?.value) ? rows[0].value ?? [] : [];
+    return runs.map((run) => ({
+      ...run,
+      topics: (run.topics ?? []).map(normalizeDailyTopic)
+    }));
   } catch (error) {
     console.error("Daily topics fetch failed", error);
     return [];
   }
+}
+
+function normalizeDailyTopic(topic: DailyContentTopic, index: number): DailyContentTopic {
+  const hook = topic.hook || "Що зараз важливо знати українцям у Польщі та Європі?";
+  return {
+    ...topic,
+    id: topic.id || newId(),
+    title: topic.title || `Тема ${index + 1}`,
+    angle: topic.angle || "Пояснити ситуацію простою мовою.",
+    pain: topic.pain || "Люди не розуміють, що робити далі.",
+    hook,
+    hooks: topic.hooks?.length ? topic.hooks : [
+      hook,
+      "Про це вже сперечаються в коментарях.",
+      "Якщо ти живеш у Польщі або Європі, це важливо.",
+      "Що насправді стоїть за цією новиною?",
+      "Це може зачепити багатьох українців за кордоном."
+    ],
+    format: topic.format || "30-45 секунд: проблема, що сталося, що робити, питання в коментарі",
+    talking_points: topic.talking_points?.length ? topic.talking_points : ["Що сталося", "Кого це зачіпає", "Що робити"],
+    script_45s: topic.script_45s || `0-3 сек: ${hook}\n3-12 сек: що сталося\n12-25 сек: чому це важливо\n25-38 сек: позиція Hugo\n38-45 сек: питання в коментарі`,
+    caption: topic.caption || topic.title || `Тема ${index + 1}`,
+    cta: topic.cta || "Напиши в коментарях, як це у твоєму місті.",
+    conflict: topic.conflict || "Люди не погоджуються, хто винен і що робити далі.",
+    series: topic.series || "Українці в Польщі: що змінилось сьогодні",
+    pinned_comment: topic.pinned_comment || "А як це у вашому місті? Напишіть у коментарях.",
+    hate_replies: topic.hate_replies?.length ? topic.hate_replies : [
+      "Я не узагальнюю всіх. Показую конкретну проблему і наслідки.",
+      "Давайте без образ: важливо зрозуміти факти.",
+      "Якщо маєте інший досвід, напишіть його."
+    ],
+    engagement_replies: topic.engagement_replies?.length ? topic.engagement_replies : [
+      "А як це у вашому місті?",
+      "Що було найскладніше саме для вас?",
+      "Зробити продовження з коментарями?"
+    ],
+    virality_score: Number(topic.virality_score) || Math.max(6, 10 - Math.floor(index / 2)),
+    conflict_score: Number(topic.conflict_score) || Math.max(6, 9 - Math.floor(index / 3)),
+    comment_score: Number(topic.comment_score) || Math.max(6, 9 - Math.floor(index / 3)),
+    emotion_score: Number(topic.emotion_score) || Math.max(6, 8 - Math.floor(index / 4)),
+    ease_score: Number(topic.ease_score) || 8,
+    production_status: topic.production_status || (index < 3 ? "Зняти першим" : "Ідея"),
+    views: Number(topic.views) || 0,
+    comments: Number(topic.comments) || 0,
+    saves: Number(topic.saves) || 0,
+    sources: topic.sources ?? []
+  };
+}
+
+async function persistDailyTopicRuns(connection: SupabaseConnection, runs: DailyTopicRun[]) {
+  await supabaseRequest<null>(connection, "settings", "on_conflict=key", {
+    method: "POST",
+    headers: {
+      Prefer: "resolution=merge-duplicates,return=minimal"
+    },
+    body: JSON.stringify([{ key: "daily_tiktok_topics", value: runs.slice(0, 30) }])
+  });
 }
 
 async function upsertRows<T>(connection: SupabaseConnection, table: string, rows: T[]) {
@@ -1354,6 +1431,16 @@ export default function SalesOs() {
     }, 450);
     return () => window.clearTimeout(timer);
   }, [dataSource, isHydrated, leadCandidates]);
+
+  useEffect(() => {
+    if (!isHydrated || !supabase || dataSource !== "supabase") return;
+    const timer = window.setTimeout(() => {
+      persistDailyTopicRuns(supabase, dailyTopicRuns).catch((error) => {
+        console.error("Daily topics sync failed", error);
+      });
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [dailyTopicRuns, dataSource, isHydrated]);
 
   useEffect(() => {
     if (!toast) return;
@@ -1805,7 +1892,8 @@ export default function SalesOs() {
       const response = await fetch("/api/content/daily-topics?manual=1&send=telegram", { cache: "no-store" });
       const data = await response.json() as { ok?: boolean; run?: DailyTopicRun; error?: string };
       if (!response.ok || !data.ok || !data.run) throw new Error(data.error || "Не вдалося згенерувати теми");
-      setDailyTopicRuns((current) => [data.run as DailyTopicRun, ...current.filter((item) => item.date !== data.run?.date)].slice(0, 30));
+      const normalizedRun = { ...data.run, topics: data.run.topics.map(normalizeDailyTopic) } as DailyTopicRun;
+      setDailyTopicRuns((current) => [normalizedRun, ...current.filter((item) => item.date !== normalizedRun.date)].slice(0, 30));
       setToast("Теми дня згенеровано");
     } catch (error) {
       console.error("Manual topic generation failed", error);
@@ -1813,6 +1901,21 @@ export default function SalesOs() {
     } finally {
       setIsGeneratingTopics(false);
     }
+  }
+
+  function patchDailyTopic(runId: string, topicId: string, patch: Partial<DailyContentTopic>) {
+    setDailyTopicRuns((current) =>
+      current.map((run) =>
+        run.id === runId
+          ? {
+              ...run,
+              topics: run.topics.map((topic) =>
+                topic.id === topicId ? { ...topic, ...patch } : topic
+              )
+            }
+          : run
+      )
+    );
   }
 
   const pageTitle = nav.find((item) => item.id === active)?.label ?? "Дашборд";
@@ -1982,6 +2085,7 @@ export default function SalesOs() {
             runs={dailyTopicRuns}
             isGenerating={isGeneratingTopics}
             onGenerate={generateTopicsNow}
+            onPatchTopic={patchDailyTopic}
             onCopied={() => setToast("Тему скопійовано")}
           />
         ) : active === "scripts" ? (
@@ -3947,20 +4051,45 @@ function CalendarPage({
   );
 }
 
+function topicPowerScore(topic: DailyContentTopic) {
+  return Math.round(
+    topic.virality_score * 2.6 +
+    topic.conflict_score * 2.1 +
+    topic.comment_score * 2.2 +
+    topic.emotion_score * 1.8 +
+    topic.ease_score * 1.3
+  );
+}
+
+function ScoreBox({ label, value }: { label: string; value: number }) {
+  const safeValue = Math.max(0, Math.min(10, Number(value) || 0));
+  const tone = safeValue >= 8 ? "border-red-400/35 bg-red-500/10 text-red-100" : safeValue >= 6 ? "border-amber/35 bg-amber/10 text-amber-100" : "border-line bg-ink/40 text-slate-300";
+  return (
+    <div className={`rounded-lg border p-3 ${tone}`}>
+      <div className="text-[11px] font-semibold uppercase tracking-[0.12em] opacity-75">{label}</div>
+      <div className="mt-1 text-2xl font-black">{safeValue}/10</div>
+    </div>
+  );
+}
+
 function DailyTopicsPage({
   runs,
   isGenerating,
   onGenerate,
+  onPatchTopic,
   onCopied
 }: {
   runs: DailyTopicRun[];
   isGenerating: boolean;
   onGenerate: () => void;
+  onPatchTopic: (runId: string, topicId: string, patch: Partial<DailyContentTopic>) => void;
   onCopied: () => void;
 }) {
   const [selectedRunId, setSelectedRunId] = useState(runs[0]?.id ?? "");
   const latestRun = runs[0] ?? null;
   const selectedRun = runs.find((run) => run.id === selectedRunId) ?? latestRun;
+  const rankedTopics = [...(selectedRun?.topics ?? [])].sort((a, b) => topicPowerScore(b) - topicPowerScore(a));
+  const firstTopics = rankedTopics.slice(0, 3);
 
   useEffect(() => {
     if (!selectedRunId && runs[0]?.id) setSelectedRunId(runs[0].id);
@@ -3971,12 +4100,27 @@ function DailyTopicsPage({
       topic.title,
       "",
       `Хук: ${topic.hook}`,
+      "",
+      "5 хуків:",
+      ...topic.hooks.map((hook) => `- ${hook}`),
       `Біль: ${topic.pain}`,
+      `Конфлікт: ${topic.conflict}`,
       `Кут: ${topic.angle}`,
       `Формат: ${topic.format}`,
       "",
+      "Сценарій 45 сек:",
+      topic.script_45s,
+      "",
       "Тези:",
       ...topic.talking_points.map((point) => `- ${point}`),
+      "",
+      `Закріплений коментар: ${topic.pinned_comment}`,
+      "",
+      "Відповіді на хейт:",
+      ...topic.hate_replies.map((reply) => `- ${reply}`),
+      "",
+      "Відповіді для залучення:",
+      ...topic.engagement_replies.map((reply) => `- ${reply}`),
       "",
       `Caption: ${topic.caption}`,
       `CTA: ${topic.cta}`
@@ -3994,14 +4138,16 @@ function DailyTopicsPage({
           <div className="mt-1 text-sm text-slate-400">{latestRun ? latestRun.summary : "Натисни генерацію або дочекайся 09:00."}</div>
         </Card>
         <Card>
-          <div className="text-sm text-slate-400">Тем</div>
-          <div className="mt-2 text-3xl font-black">{latestRun?.topics.length ?? 0}</div>
-          <div className="mt-1 text-xs text-slate-400">для TikTok</div>
+          <div className="text-sm text-slate-400">Зняти першим</div>
+          <div className="mt-2 text-3xl font-black">{firstTopics.length}</div>
+          <div className="mt-1 text-xs text-slate-400">найсильніші теми</div>
         </Card>
         <Card>
-          <div className="text-sm text-slate-400">Джерел</div>
-          <div className="mt-2 text-3xl font-black">{latestRun?.sources.length ?? 0}</div>
-          <div className="mt-1 text-xs text-slate-400">новини і пошук</div>
+          <div className="text-sm text-slate-400">Середній power</div>
+          <div className="mt-2 text-3xl font-black">
+            {latestRun?.topics.length ? Math.round(latestRun.topics.reduce((sum, topic) => sum + topicPowerScore(topic), 0) / latestRun.topics.length) : 0}
+          </div>
+          <div className="mt-1 text-xs text-slate-400">віральність + коментарі</div>
         </Card>
       </section>
 
@@ -4038,17 +4184,50 @@ function DailyTopicsPage({
               <div className="mt-2 text-xs text-slate-400">{selectedRun.audience} · {selectedRun.region} · {selectedRun.status}</div>
             </div>
 
+            <div className="rounded-lg border border-amber/35 bg-amber/10 p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Зняти першим</div>
+                  <div className="mt-1 text-lg font-black">3 теми з найвищим шансом на перегляди</div>
+                </div>
+                <span className="rounded-full border border-amber/40 px-3 py-1 text-xs font-black text-amber-100">пріоритет</span>
+              </div>
+              <div className="grid gap-2 lg:grid-cols-3">
+                {firstTopics.map((topic, index) => (
+                  <button key={topic.id} className="rounded-lg border border-line bg-panel2 p-3 text-left hover:bg-white hover:text-ink" onClick={() => onPatchTopic(selectedRun.id, topic.id, { production_status: "Зняти першим" })}>
+                    <div className="text-xs font-black text-blue">#{index + 1} · power {topicPowerScore(topic)}</div>
+                    <div className="mt-1 font-black">{topic.title}</div>
+                    <div className="mt-2 line-clamp-2 text-sm opacity-75">{topic.hook}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="grid gap-3 xl:grid-cols-2">
-              {selectedRun.topics.map((topic, index) => (
+              {rankedTopics.map((topic, index) => (
                 <article key={topic.id} className="rounded-lg border border-line bg-panel2 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-xs font-black text-blue">Тема {index + 1}</div>
+                      <div className="text-xs font-black text-blue">Тема {index + 1} · power {topicPowerScore(topic)} · {topic.series}</div>
                       <h3 className="mt-1 text-lg font-black">{topic.title}</h3>
                     </div>
-                    <button className="shrink-0 rounded-lg bg-white px-3 py-2 text-xs font-black text-ink" onClick={() => copyTopic(topic)}>
-                      Копіювати
-                    </button>
+                    <div className="flex shrink-0 flex-col gap-2">
+                      <button className="rounded-lg bg-white px-3 py-2 text-xs font-black text-ink" onClick={() => copyTopic(topic)}>
+                        Копіювати
+                      </button>
+                      <Select
+                        value={topic.production_status}
+                        onChange={(value) => onPatchTopic(selectedRun.id, topic.id, { production_status: value as DailyContentTopic["production_status"] })}
+                        options={["Ідея", "Зняти першим", "Знято", "Змонтовано", "Опубліковано", "Архів"]}
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-5">
+                    <ScoreBox label="Віральність" value={topic.virality_score} />
+                    <ScoreBox label="Конфлікт" value={topic.conflict_score} />
+                    <ScoreBox label="Коментарі" value={topic.comment_score} />
+                    <ScoreBox label="Емоція" value={topic.emotion_score} />
+                    <ScoreBox label="Легко зняти" value={topic.ease_score} />
                   </div>
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
                     <div className="rounded-lg border border-line bg-ink/40 p-3">
@@ -4060,16 +4239,53 @@ function DailyTopicsPage({
                       <div className="mt-2 text-sm leading-6 text-slate-200">{topic.pain}</div>
                     </div>
                   </div>
+                  <div className="mt-3 rounded-lg border border-red-400/25 bg-red-500/10 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Конфлікт</div>
+                    <div className="mt-2 text-sm leading-6 text-slate-200">{topic.conflict}</div>
+                  </div>
                   <div className="mt-3 rounded-lg border border-line bg-ink/40 p-3">
                     <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Кут і формат</div>
                     <div className="mt-2 text-sm leading-6 text-slate-200">{topic.angle}</div>
                     <div className="mt-2 text-sm text-slate-400">{topic.format}</div>
+                  </div>
+                  <div className="mt-3 rounded-lg border border-line bg-ink/40 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">5 хуків</div>
+                    <ul className="mt-2 space-y-1 text-sm text-slate-300">
+                      {topic.hooks.map((hook) => <li key={hook}>- {hook}</li>)}
+                    </ul>
+                  </div>
+                  <div className="mt-3 rounded-lg border border-line bg-ink/40 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Сценарій на 45 секунд</div>
+                    <pre className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-200">{topic.script_45s}</pre>
                   </div>
                   <div className="mt-3">
                     <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Тези</div>
                     <ul className="mt-2 space-y-1 text-sm text-slate-300">
                       {topic.talking_points.map((point) => <li key={point}>- {point}</li>)}
                     </ul>
+                  </div>
+                  <div className="mt-3 grid gap-2 lg:grid-cols-3">
+                    <div className="rounded-lg border border-line bg-ink/40 p-3">
+                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Закріпити</div>
+                      <div className="mt-2 text-sm text-slate-200">{topic.pinned_comment}</div>
+                    </div>
+                    <div className="rounded-lg border border-line bg-ink/40 p-3">
+                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Відповіді на хейт</div>
+                      <ul className="mt-2 space-y-1 text-sm text-slate-300">
+                        {topic.hate_replies.map((reply) => <li key={reply}>- {reply}</li>)}
+                      </ul>
+                    </div>
+                    <div className="rounded-lg border border-line bg-ink/40 p-3">
+                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Залучення</div>
+                      <ul className="mt-2 space-y-1 text-sm text-slate-300">
+                        {topic.engagement_replies.map((reply) => <li key={reply}>- {reply}</li>)}
+                      </ul>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                    <Input label="Перегляди" value={String(topic.views || 0)} onChange={(value) => onPatchTopic(selectedRun.id, topic.id, { views: Number(value) || 0 })} />
+                    <Input label="Коментарі" value={String(topic.comments || 0)} onChange={(value) => onPatchTopic(selectedRun.id, topic.id, { comments: Number(value) || 0 })} />
+                    <Input label="Збереження" value={String(topic.saves || 0)} onChange={(value) => onPatchTopic(selectedRun.id, topic.id, { saves: Number(value) || 0 })} />
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {topic.sources.slice(0, 3).map((source) => (

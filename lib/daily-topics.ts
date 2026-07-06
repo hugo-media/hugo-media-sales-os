@@ -4,10 +4,26 @@ export type DailyContentTopic = {
   angle: string;
   pain: string;
   hook: string;
+  hooks: string[];
   format: string;
   talking_points: string[];
+  script_45s: string;
   caption: string;
   cta: string;
+  conflict: string;
+  series: string;
+  pinned_comment: string;
+  hate_replies: string[];
+  engagement_replies: string[];
+  virality_score: number;
+  conflict_score: number;
+  comment_score: number;
+  emotion_score: number;
+  ease_score: number;
+  production_status: "Ідея" | "Зняти першим" | "Знято" | "Змонтовано" | "Опубліковано" | "Архів";
+  views: number;
+  comments: number;
+  saves: number;
   sources: Array<{ title: string; url: string; snippet: string }>;
 };
 
@@ -160,9 +176,14 @@ async function analyzeWithOpenAI(sources: Array<{ title: string; url: string; sn
     "Ти редактор TikTok для Hugo Media. Потрібно щоранку знайти гарячі теми для українців у Польщі та Європі.",
     "На основі джерел сформуй рівно 10 тем для коротких відео.",
     "Фокус: актуальні новини, скандали, болі українців, робота, житло, документи, медицина, бізнес, коментарі людей, соціальна напруга.",
+    "Кожна тема має бути не сухою новиною, а TikTok-ідеєю з конфліктом, емоцією, коментарями і чіткою позицією Hugo.",
+    "Позиція Hugo: показую не просто подію, а як це впливає на українців, бізнес і людей за кордоном.",
+    "Дай для кожної теми 5 різних хуків, 45-секундний сценарій, закріплений коментар, відповіді на хейт і відповіді для залучення.",
+    "Оціни кожну тему числами 0-10: virality_score, conflict_score, comment_score, emotion_score, ease_score.",
+    "production_status для топ-3 тем постав 'Зняти першим', для інших 'Ідея'.",
     "Не вигадуй фактів. Якщо тема базується на тренді, формулюй як гіпотезу/кут, а не як факт.",
     "Поверни тільки JSON без markdown.",
-    'Формат: {"summary":"короткий підсумок дня","topics":[{"title":"","angle":"","pain":"","hook":"","format":"","talking_points":["","",""],"caption":"","cta":"","sources":[{"title":"","url":"","snippet":""}]}]}',
+    'Формат: {"summary":"короткий підсумок дня","topics":[{"title":"","angle":"","pain":"","hook":"","hooks":["","","","",""],"format":"","talking_points":["","",""],"script_45s":"","caption":"","cta":"","conflict":"","series":"","pinned_comment":"","hate_replies":["","",""],"engagement_replies":["","",""],"virality_score":0,"conflict_score":0,"comment_score":0,"emotion_score":0,"ease_score":0,"production_status":"Ідея","sources":[{"title":"","url":"","snippet":""}]}]}',
     "",
     "Джерела:",
     sourceText
@@ -199,15 +220,79 @@ function normalizeTopics(topics: DailyContentTopic[], sources: Array<{ title: st
     angle: topic.angle || "Пояснити ситуацію простою мовою.",
     pain: topic.pain || "Люди не розуміють, що робити далі.",
     hook: topic.hook || "Що зараз важливо знати українцям у Польщі та Європі?",
+    hooks: normalizeHooks(topic),
     format: topic.format || "говоряча голова + 3 тези + питання в коментарі",
     talking_points: (topic.talking_points ?? []).slice(0, 4),
+    script_45s: topic.script_45s || buildDefaultScript(topic),
     caption: topic.caption || topic.title || `Тема ${index + 1}`,
     cta: topic.cta || "Напиши в коментарях, як це у твоєму місті.",
+    conflict: topic.conflict || "Люди не погоджуються, хто винен і що робити далі.",
+    series: topic.series || pickSeries(topic),
+    pinned_comment: topic.pinned_comment || "А як це у вашому місті? Напишіть у коментарях.",
+    hate_replies: normalizeList(topic.hate_replies, [
+      "Я не узагальнюю всіх. Показую конкретну проблему і як вона впливає на людей.",
+      "Давайте без образ: важливо зрозуміти факти і наслідки.",
+      "Якщо маєте інший досвід, напишіть місто і ситуацію."
+    ], 3),
+    engagement_replies: normalizeList(topic.engagement_replies, [
+      "Цікаво, у якому ви місті і як це виглядає там?",
+      "Що було найскладніше саме для вас?",
+      "Зібрати окреме відео з вашими історіями?"
+    ], 3),
+    virality_score: score(topic.virality_score, index),
+    conflict_score: score(topic.conflict_score, index),
+    comment_score: score(topic.comment_score, index),
+    emotion_score: score(topic.emotion_score, index),
+    ease_score: score(topic.ease_score, index),
+    production_status: topic.production_status || (index < 3 ? "Зняти першим" : "Ідея"),
+    views: Number(topic.views) || 0,
+    comments: Number(topic.comments) || 0,
+    saves: Number(topic.saves) || 0,
     sources: (topic.sources?.length ? topic.sources : sources.slice(index, index + 2)).slice(0, 3)
   }));
 }
 
-function fallbackTopics(sources: Array<{ title: string; url: string; snippet: string }>) {
+function normalizeList(values: string[] | undefined, fallback: string[], limit: number) {
+  const clean = (values ?? []).filter((value) => value && value.trim()).map((value) => value.trim());
+  return [...clean, ...fallback].slice(0, limit);
+}
+
+function normalizeHooks(topic: DailyContentTopic) {
+  return normalizeList(topic.hooks, [
+    topic.hook || "Українці в Польщі, це вас напряму стосується.",
+    "Про це мовчать, але в коментарях вже кипить.",
+    "Якщо ти живеш у Польщі або Європі, перевір це сьогодні.",
+    "Поляки знову обговорюють українців, і ось чому.",
+    "Це може стати новою проблемою для українців за кордоном."
+  ], 5);
+}
+
+function buildDefaultScript(topic: Pick<DailyContentTopic, "title" | "hook" | "pain" | "angle" | "cta">) {
+  return [
+    `0-3 сек: ${topic.hook || topic.title}`,
+    `3-12 сек: коротко пояснити, що сталося: ${topic.title}`,
+    `12-25 сек: показати біль: ${topic.pain || "люди не розуміють, що робити"}`,
+    `25-38 сек: позиція Hugo: ${topic.angle || "як це впливає на українців за кордоном"}`,
+    `38-45 сек: ${topic.cta || "питання в коментарі"}`
+  ].join("\n");
+}
+
+function pickSeries(topic: Pick<DailyContentTopic, "title" | "pain" | "angle">) {
+  const text = `${topic.title} ${topic.pain} ${topic.angle}`.toLowerCase();
+  if (text.includes("документ") || text.includes("легал")) return "Документи без паніки";
+  if (text.includes("робот") || text.includes("зарплат")) return "Українці в Польщі: робота і гроші";
+  if (text.includes("житл") || text.includes("оренд")) return "Житло українців у Європі";
+  if (text.includes("бізнес") || text.includes("подат")) return "Бізнес українців за кордоном";
+  return "Українці в Польщі: що змінилось сьогодні";
+}
+
+function score(value: number | undefined, index: number) {
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric >= 0) return Math.max(0, Math.min(10, Math.round(numeric)));
+  return Math.max(6, 10 - Math.floor(index / 2));
+}
+
+function fallbackTopics(sources: Array<{ title: string; url: string; snippet: string }>): { summary: string; topics: DailyContentTopic[] } {
   const base = sources.length ? sources : [
     { title: "Українці в Польщі: робота, житло, документи", url: "", snippet: "Ранковий fallback без підключеного OpenAI або Serper." }
   ];
@@ -219,14 +304,50 @@ function fallbackTopics(sources: Array<{ title: string; url: string; snippet: st
       angle: "Розібрати, що це означає для українців у Польщі та Європі.",
       pain: source.snippet || "Невизначеність, документи, гроші, житло або робота.",
       hook: `Українці знову обговорюють це: ${source.title}`,
+      hooks: [
+        `Українці знову обговорюють це: ${source.title}`,
+        "Про це вже сперечаються в коментарях.",
+        "Якщо ти живеш у Польщі або Європі, це важливо.",
+        "Що насправді стоїть за цією новиною?",
+        "Це може зачепити багатьох українців за кордоном."
+      ],
       format: "30-45 секунд: проблема, що сталося, що робити, питання в коментарі",
       talking_points: [
         "Що сталося простими словами",
         "Кого це зачіпає",
         "Що перевірити або зробити сьогодні"
       ],
+      script_45s: [
+        `0-3 сек: Українці знову обговорюють це: ${source.title}`,
+        "3-12 сек: коротко пояснити новину без паніки",
+        "12-25 сек: показати, кого це зачіпає",
+        "25-38 сек: дати позицію Hugo і практичний висновок",
+        "38-45 сек: попросити людей написати свій досвід"
+      ].join("\n"),
       caption: `${source.title} Що думаєш?`,
       cta: "Напиши в коментарях, чи стикався з цим.",
+      conflict: "Одна сторона каже, що проблема перебільшена, інша вже відчуває наслідки.",
+      series: "Українці в Польщі: що змінилось сьогодні",
+      pinned_comment: "У якому місті ви живете і чи бачите цю проблему?",
+      hate_replies: [
+        "Я не узагальнюю всіх. Показую конкретну ситуацію і наслідки.",
+        "Без образ: важливо говорити фактами.",
+        "Якщо маєте інший досвід, напишіть його."
+      ],
+      engagement_replies: [
+        "А як це у вашому місті?",
+        "Що було найскладніше саме для вас?",
+        "Зробити продовження з коментарями?"
+      ],
+      virality_score: Math.max(6, 10 - Math.floor(index / 2)),
+      conflict_score: Math.max(6, 9 - Math.floor(index / 3)),
+      comment_score: Math.max(6, 9 - Math.floor(index / 3)),
+      emotion_score: Math.max(6, 8 - Math.floor(index / 4)),
+      ease_score: 8,
+      production_status: index < 3 ? "Зняти першим" : "Ідея",
+      views: 0,
+      comments: 0,
+      saves: 0,
       sources: [source]
     };
   });
@@ -244,7 +365,14 @@ async function sendTelegramTopics(run: DailyTopicRun) {
     "",
     run.summary,
     "",
-    ...run.topics.map((topic, index) => `${index + 1}. <b>${escapeHtml(topic.title)}</b>\n${escapeHtml(topic.hook)}`)
+    "<b>Зняти першими</b>",
+    ...[...run.topics]
+      .sort((a, b) => topicPowerScore(b) - topicPowerScore(a))
+      .slice(0, 3)
+      .map((topic, index) => `${index + 1}. <b>${escapeHtml(topic.title)}</b> · power ${topicPowerScore(topic)}\n${escapeHtml(topic.hook)}`),
+    "",
+    "<b>Всі теми</b>",
+    ...run.topics.map((topic, index) => `${index + 1}. <b>${escapeHtml(topic.title)}</b> · ${topic.production_status}\n${escapeHtml(topic.hook)}`)
   ];
 
   await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
@@ -261,6 +389,16 @@ async function sendTelegramTopics(run: DailyTopicRun) {
 
 function escapeHtml(value: string) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+function topicPowerScore(topic: DailyContentTopic) {
+  return Math.round(
+    topic.virality_score * 2.6 +
+    topic.conflict_score * 2.1 +
+    topic.comment_score * 2.2 +
+    topic.emotion_score * 1.8 +
+    topic.ease_score * 1.3
+  );
 }
 
 export async function generateDailyTopics(options: { sendTelegram?: boolean } = {}) {
