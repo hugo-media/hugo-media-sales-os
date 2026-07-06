@@ -5,6 +5,10 @@
       "schedule": "0 6 * * *"
     },
     {
+      "path": "/api/content/daily-topics?send=telegram",
+      "schedule": "0 6 * * *"
+    },
+    {
       "path": "/api/telegram/daily?type=evening",
       "schedule": "0 17 * * *"
     }

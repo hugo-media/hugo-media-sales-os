@@ -105,6 +105,31 @@ type LeadCandidate = {
   updated_at: string;
 };
 
+type DailyContentTopic = {
+  id: string;
+  title: string;
+  angle: string;
+  pain: string;
+  hook: string;
+  format: string;
+  talking_points: string[];
+  caption: string;
+  cta: string;
+  sources: Array<{ title: string; url: string; snippet: string }>;
+};
+
+type DailyTopicRun = {
+  id: string;
+  date: string;
+  audience: string;
+  region: string;
+  status: "Ready" | "Fallback" | "Error";
+  summary: string;
+  topics: DailyContentTopic[];
+  sources: Array<{ title: string; url: string; snippet: string }>;
+  created_at: string;
+};
+
 type Task = {
   id: string;
   title: string;
@@ -872,6 +897,7 @@ const nav = [
   { id: "followups", label: "Follow-up", icon: MessageSquare },
   { id: "calendar", label: "Календар", icon: CalendarDays },
   { id: "content", label: "Контент-план", icon: ClipboardList },
+  { id: "dailyTopics", label: "Теми дня", icon: Flame },
   { id: "scripts", label: "Скрипти", icon: FileText },
   { id: "analytics", label: "Аналітика", icon: BarChart3 },
   { id: "settings", label: "Налаштування", icon: Settings }
@@ -887,6 +913,7 @@ const routeById: Record<string, string> = {
   followups: "/follow-up",
   calendar: "/calendar",
   content: "/content-plan",
+  dailyTopics: "/daily-topics",
   scripts: "/scripts",
   analytics: "/analytics",
   settings: "/settings"
@@ -1118,6 +1145,20 @@ async function persistLeadCandidates(connection: SupabaseConnection, candidates:
   });
 }
 
+async function fetchDailyTopicRuns(connection: SupabaseConnection) {
+  try {
+    const rows = await supabaseRequest<SettingRow<DailyTopicRun[]>[]>(
+      connection,
+      "settings",
+      "select=key,value&key=eq.daily_tiktok_topics&limit=1"
+    );
+    return Array.isArray(rows[0]?.value) ? rows[0].value ?? [] : [];
+  } catch (error) {
+    console.error("Daily topics fetch failed", error);
+    return [];
+  }
+}
+
 async function upsertRows<T>(connection: SupabaseConnection, table: string, rows: T[]) {
   if (!rows.length) return;
 
@@ -1187,6 +1228,8 @@ export default function SalesOs() {
   const [history, setHistory] = useState(seedSnapshot.history);
   const [settings, setSettings] = useState(seedSnapshot.settings);
   const [leadCandidates, setLeadCandidates] = useState<LeadCandidate[]>([]);
+  const [dailyTopicRuns, setDailyTopicRuns] = useState<DailyTopicRun[]>([]);
+  const [isGeneratingTopics, setIsGeneratingTopics] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
   const [dataSource, setDataSource] = useState<"local" | "supabase">(supabase ? "supabase" : "local");
   const [dataSourceNote, setDataSourceNote] = useState("");
@@ -1250,12 +1293,14 @@ export default function SalesOs() {
       }
 
       if (supabase) {
-        const [{ snapshot: remoteSnapshot, error }, remoteCandidates] = await Promise.all([
+        const [{ snapshot: remoteSnapshot, error }, remoteCandidates, remoteTopicRuns] = await Promise.all([
           fetchSupabaseSnapshot(supabase),
-          fetchLeadCandidates(supabase)
+          fetchLeadCandidates(supabase),
+          fetchDailyTopicRuns(supabase)
         ]);
         if (cancelled) return;
         setLeadCandidates(remoteCandidates);
+        setDailyTopicRuns(remoteTopicRuns);
 
         if (remoteSnapshot) {
           const remoteHasData =
@@ -1754,6 +1799,22 @@ export default function SalesOs() {
     setToast("Кандидата додано в ліди");
   }
 
+  async function generateTopicsNow() {
+    setIsGeneratingTopics(true);
+    try {
+      const response = await fetch("/api/content/daily-topics?manual=1&send=telegram", { cache: "no-store" });
+      const data = await response.json() as { ok?: boolean; run?: DailyTopicRun; error?: string };
+      if (!response.ok || !data.ok || !data.run) throw new Error(data.error || "Не вдалося згенерувати теми");
+      setDailyTopicRuns((current) => [data.run as DailyTopicRun, ...current.filter((item) => item.date !== data.run?.date)].slice(0, 30));
+      setToast("Теми дня згенеровано");
+    } catch (error) {
+      console.error("Manual topic generation failed", error);
+      setToast(error instanceof Error ? error.message : "Не вдалося згенерувати теми");
+    } finally {
+      setIsGeneratingTopics(false);
+    }
+  }
+
   const pageTitle = nav.find((item) => item.id === active)?.label ?? "Дашборд";
 
   return (
@@ -1916,6 +1977,13 @@ export default function SalesOs() {
           />
         ) : active === "content" ? (
           <ContentPage today={today} items={contentItems} leads={leads} setItems={setContentItems} />
+        ) : active === "dailyTopics" ? (
+          <DailyTopicsPage
+            runs={dailyTopicRuns}
+            isGenerating={isGeneratingTopics}
+            onGenerate={generateTopicsNow}
+            onCopied={() => setToast("Тему скопійовано")}
+          />
         ) : active === "scripts" ? (
           <TemplatesPage
             templates={templates}
@@ -3875,6 +3943,153 @@ function CalendarPage({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function DailyTopicsPage({
+  runs,
+  isGenerating,
+  onGenerate,
+  onCopied
+}: {
+  runs: DailyTopicRun[];
+  isGenerating: boolean;
+  onGenerate: () => void;
+  onCopied: () => void;
+}) {
+  const [selectedRunId, setSelectedRunId] = useState(runs[0]?.id ?? "");
+  const latestRun = runs[0] ?? null;
+  const selectedRun = runs.find((run) => run.id === selectedRunId) ?? latestRun;
+
+  useEffect(() => {
+    if (!selectedRunId && runs[0]?.id) setSelectedRunId(runs[0].id);
+  }, [runs, selectedRunId]);
+
+  async function copyTopic(topic: DailyContentTopic) {
+    const text = [
+      topic.title,
+      "",
+      `Хук: ${topic.hook}`,
+      `Біль: ${topic.pain}`,
+      `Кут: ${topic.angle}`,
+      `Формат: ${topic.format}`,
+      "",
+      "Тези:",
+      ...topic.talking_points.map((point) => `- ${point}`),
+      "",
+      `Caption: ${topic.caption}`,
+      `CTA: ${topic.cta}`
+    ].join("\n");
+    await navigator.clipboard.writeText(text);
+    onCopied();
+  }
+
+  return (
+    <div className="space-y-5">
+      <section className="grid gap-3 md:grid-cols-4">
+        <Card className="md:col-span-2">
+          <div className="text-sm text-slate-400">Сьогоднішній аналіз</div>
+          <div className="mt-2 text-2xl font-black">{latestRun ? latestRun.date : "Ще немає"}</div>
+          <div className="mt-1 text-sm text-slate-400">{latestRun ? latestRun.summary : "Натисни генерацію або дочекайся 09:00."}</div>
+        </Card>
+        <Card>
+          <div className="text-sm text-slate-400">Тем</div>
+          <div className="mt-2 text-3xl font-black">{latestRun?.topics.length ?? 0}</div>
+          <div className="mt-1 text-xs text-slate-400">для TikTok</div>
+        </Card>
+        <Card>
+          <div className="text-sm text-slate-400">Джерел</div>
+          <div className="mt-2 text-3xl font-black">{latestRun?.sources.length ?? 0}</div>
+          <div className="mt-1 text-xs text-slate-400">новини і пошук</div>
+        </Card>
+      </section>
+
+      <Card>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <SectionTitle title="Теми дня" />
+            <p className="-mt-2 text-sm text-slate-400">Щоранку о 09:00: гарячі новини, болі, скандали і готові кути для TikTok.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Select
+              value={selectedRun?.id ?? "Немає запусків"}
+              onChange={(value) => {
+                if (runs.some((run) => run.id === value)) setSelectedRunId(value);
+              }}
+              options={runs.length ? runs.map((run) => run.id) : ["Немає запусків"]}
+            />
+            <button
+              className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-white px-4 font-black text-ink disabled:opacity-60"
+              onClick={onGenerate}
+              disabled={isGenerating}
+            >
+              <Sparkles className="h-4 w-4" />
+              {isGenerating ? "Генерую..." : "Згенерувати зараз"}
+            </button>
+          </div>
+        </div>
+
+        {selectedRun ? (
+          <div className="space-y-4">
+            <div className="rounded-lg border border-blue/30 bg-blue/10 p-4">
+              <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Підсумок</div>
+              <div className="mt-2 text-sm leading-6 text-slate-200">{selectedRun.summary}</div>
+              <div className="mt-2 text-xs text-slate-400">{selectedRun.audience} · {selectedRun.region} · {selectedRun.status}</div>
+            </div>
+
+            <div className="grid gap-3 xl:grid-cols-2">
+              {selectedRun.topics.map((topic, index) => (
+                <article key={topic.id} className="rounded-lg border border-line bg-panel2 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-black text-blue">Тема {index + 1}</div>
+                      <h3 className="mt-1 text-lg font-black">{topic.title}</h3>
+                    </div>
+                    <button className="shrink-0 rounded-lg bg-white px-3 py-2 text-xs font-black text-ink" onClick={() => copyTopic(topic)}>
+                      Копіювати
+                    </button>
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div className="rounded-lg border border-line bg-ink/40 p-3">
+                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Хук</div>
+                      <div className="mt-2 text-sm leading-6 text-slate-200">{topic.hook}</div>
+                    </div>
+                    <div className="rounded-lg border border-line bg-ink/40 p-3">
+                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Біль</div>
+                      <div className="mt-2 text-sm leading-6 text-slate-200">{topic.pain}</div>
+                    </div>
+                  </div>
+                  <div className="mt-3 rounded-lg border border-line bg-ink/40 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Кут і формат</div>
+                    <div className="mt-2 text-sm leading-6 text-slate-200">{topic.angle}</div>
+                    <div className="mt-2 text-sm text-slate-400">{topic.format}</div>
+                  </div>
+                  <div className="mt-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Тези</div>
+                    <ul className="mt-2 space-y-1 text-sm text-slate-300">
+                      {topic.talking_points.map((point) => <li key={point}>- {point}</li>)}
+                    </ul>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {topic.sources.slice(0, 3).map((source) => (
+                      source.url ? (
+                        <a key={source.url} className="rounded-lg border border-line px-3 py-2 text-xs font-semibold hover:bg-white hover:text-ink" href={source.url} target="_blank" rel="noreferrer">
+                          Джерело
+                        </a>
+                      ) : null
+                    ))}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-dashed border-line p-8 text-center text-sm text-slate-500">
+            Ще немає згенерованих тем. Натисни "Згенерувати зараз" або дочекайся ранкового cron о 09:00.
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

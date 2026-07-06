@@ -73,6 +73,7 @@ NEXT_PUBLIC_APP_URL=https://hugo-media-sales-os.vercel.app
 Cron jobs у `vercel.json`:
 
 - `/api/telegram/daily?type=morning` — 06:00 UTC, тобто 09:00 за Києвом влітку.
+- `/api/content/daily-topics?send=telegram` — 06:00 UTC, тобто 09:00 за Києвом влітку. Генерує 10 TikTok-тем дня про українців у Польщі та Європі.
 - `/api/telegram/daily?type=evening` — 17:00 UTC, тобто 20:00 за Києвом влітку.
 
 Для ручного тесту відкрийте:
@@ -80,4 +81,11 @@ Cron jobs у `vercel.json`:
 ```bash
 /api/telegram/daily?type=morning
 /api/telegram/daily?type=evening
+/api/content/daily-topics?manual=1&send=telegram
 ```
+
+Для якісної генерації тем дня потрібні:
+
+- `SERPER_API_KEY` — бере актуальні новини/пошук.
+- `OPENAI_API_KEY` — робить ChatGPT-аналіз і формує 10 тем.
+- `OPENAI_TOPIC_MODEL` — опційно, стандартно `gpt-4o-mini`.
