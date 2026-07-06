@@ -1000,7 +1000,8 @@ const routeById: Record<string, string> = {
 
 const idByRoute: Record<string, string> = Object.fromEntries(Object.entries(routeById).map(([id, route]) => [route, id]));
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const fallbackSupabaseUrl = "https://lukxdctqcaprfwfisblw.supabase.co";
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || fallbackSupabaseUrl;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 const supabase =
   supabaseUrl && supabaseAnonKey
