@@ -25,7 +25,7 @@ import {
   Users,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 
 type LeadStatus =
   | "Новий"
@@ -2319,6 +2319,9 @@ function TodayPage({
   onCandidateStatus: (id: string, status: LeadCandidateStatus) => void;
   onCopied: () => void;
 }) {
+  const todayPlanRef = useRef<HTMLDivElement | null>(null);
+  const overdueRef = useRef<HTMLDivElement | null>(null);
+  const newOutreachRef = useRef<HTMLDivElement | null>(null);
   const activeLeads = leads.filter((lead) => !["Виграно", "Закриті"].includes(visibleLeadStatus(lead.status)));
   const dueLeads = activeLeads.filter((lead) => lead.follow_up_date && lead.follow_up_date <= today);
   const overdueLeads = dueLeads.filter((lead) => lead.follow_up_date < today);
@@ -2352,20 +2355,24 @@ function TodayPage({
     onCopied();
   }
 
+  function scrollToSection(ref: RefObject<HTMLDivElement | null>) {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   return (
     <div className="space-y-5">
       <section className="grid gap-3 md:grid-cols-4">
-        <button className="rounded-lg border border-red-400/35 bg-red-500/10 p-4 text-left" onClick={onOpenFollowups}>
+        <button className="rounded-lg border border-red-400/35 bg-red-500/10 p-4 text-left" onClick={() => scrollToSection(overdueRef)}>
           <div className="text-sm text-red-200">Прострочено</div>
           <div className="mt-2 text-3xl font-black">{overdueLeads.length}</div>
           <div className="mt-1 text-xs text-slate-400">розібрати першими</div>
         </button>
-        <button className="rounded-lg border border-blue/35 bg-blue/10 p-4 text-left" onClick={onOpenFollowups}>
+        <button className="rounded-lg border border-blue/35 bg-blue/10 p-4 text-left" onClick={() => scrollToSection(todayPlanRef)}>
           <div className="text-sm text-sky-100">Сьогодні</div>
           <div className="mt-2 text-3xl font-black">{todayDueLeads.length}</div>
           <div className="mt-1 text-xs text-slate-400">follow-up саме на {formatUkrainianDate(today)}</div>
         </button>
-        <button className="rounded-lg border border-amber/35 bg-amber/10 p-4 text-left" onClick={onAddLead}>
+        <button className="rounded-lg border border-amber/35 bg-amber/10 p-4 text-left" onClick={() => scrollToSection(newOutreachRef)}>
           <div className="text-sm text-amber-100">Нові</div>
           <div className="mt-2 text-3xl font-black">{readyForOutreach.length}</div>
           <div className="mt-1 text-xs text-slate-400">кому написати перший раз</div>
@@ -2378,6 +2385,7 @@ function TodayPage({
       </section>
 
       <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+        <div ref={todayPlanRef} className="scroll-mt-4">
         <Card>
           <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -2440,6 +2448,7 @@ function TodayPage({
             )}
           </div>
         </Card>
+        </div>
 
         <div className="space-y-5">
           <Card>
@@ -2458,6 +2467,7 @@ function TodayPage({
             </div>
           </Card>
 
+          <div ref={overdueRef} className="scroll-mt-4">
           <Card>
             <div className="mb-3 flex items-center justify-between gap-3">
               <SectionTitle title="Прострочені" />
@@ -2474,7 +2484,9 @@ function TodayPage({
               )}
             </div>
           </Card>
+          </div>
 
+          <div ref={newOutreachRef} className="scroll-mt-4">
           <Card>
             <div className="mb-3 flex items-center justify-between gap-3">
               <SectionTitle title="Нові для першого контакту" />
@@ -2497,6 +2509,7 @@ function TodayPage({
               )}
             </div>
           </Card>
+          </div>
 
           <Card>
             <div className="mb-3 flex items-center justify-between gap-3">
