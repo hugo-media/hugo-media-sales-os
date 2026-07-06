@@ -32,6 +32,7 @@ type LeadLookup = {
   website_url: string | null;
   instagram_url: string | null;
   facebook_url: string | null;
+  tiktok_url: string | null;
   phone: string | null;
   email: string | null;
 };
@@ -358,6 +359,16 @@ async function supabaseRequest<T>(table: string, query: string, init?: RequestIn
 function isMissingSupabaseColumn(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return message.includes("PGRST204") || message.includes("42703") || message.includes("schema cache") || message.includes("Could not find the") || message.includes("does not exist");
+}
+
+async function readLeadsForLookup() {
+  try {
+    return await supabaseRequest<LeadLookup[]>("leads", "select=id,business_name,city,website_url,instagram_url,facebook_url,tiktok_url,phone,email");
+  } catch (error) {
+    if (!isMissingSupabaseColumn(error)) throw error;
+    const rows = await supabaseRequest<Omit<LeadLookup, "tiktok_url">[]>("leads", "select=id,business_name,city,website_url,instagram_url,facebook_url,phone,email");
+    return rows.map((lead) => ({ ...lead, tiktok_url: "" }));
+  }
 }
 
 async function readCandidateStore() {
@@ -974,11 +985,12 @@ async function findNominatimCandidates(options: {
   }
 }
 
-function duplicateKeyParts(candidate: Pick<LeadCandidate, "business_name" | "city" | "website_url" | "instagram_url" | "facebook_url" | "phone" | "email" | "osm_url">) {
+function duplicateKeyParts(candidate: Pick<LeadCandidate, "business_name" | "city" | "website_url" | "instagram_url" | "facebook_url" | "tiktok_url" | "phone" | "email" | "osm_url">) {
   return [
     candidate.website_url,
     candidate.instagram_url,
     candidate.facebook_url,
+    candidate.tiktok_url,
     candidate.phone,
     candidate.email,
     candidate.osm_url,
@@ -994,6 +1006,7 @@ function hasDuplicate(candidate: LeadCandidate, leads: LeadLookup[], candidates:
     website_url: lead.website_url || "",
     instagram_url: lead.instagram_url || "",
     facebook_url: lead.facebook_url || "",
+    tiktok_url: lead.tiktok_url || "",
     phone: lead.phone || "",
     email: lead.email || "",
     osm_url: ""
@@ -1031,7 +1044,7 @@ export async function updateCandidateStatus(candidateId: string, status: LeadCan
 export async function addCandidateToCrm(candidateId: string, priority: "Medium" | "Hot" = "Medium") {
   const candidate = await getCandidate(candidateId);
   if (!candidate) throw new Error("Candidate not found");
-  const leads = await supabaseRequest<LeadLookup[]>("leads", "select=id,business_name,city,website_url,instagram_url,facebook_url,phone,email");
+  const leads = await readLeadsForLookup();
   if (hasDuplicate(candidate, leads, [])) throw new Error("Цей бізнес вже є в CRM.");
   const leadPayload: Record<string, unknown> = {
     business_name: candidate.business_name,
@@ -1040,10 +1053,11 @@ export async function addCandidateToCrm(candidateId: string, priority: "Medium" 
     contact_name: "",
     instagram_url: candidate.instagram_url,
     facebook_url: candidate.facebook_url,
+    tiktok_url: candidate.tiktok_url,
     website_url: candidate.website_url,
     phone: candidate.phone,
     email: candidate.email,
-    contact_channel: candidate.instagram_url ? "Instagram" : candidate.facebook_url ? "Facebook" : "",
+    contact_channel: candidate.instagram_url ? "Instagram" : candidate.tiktok_url ? "TikTok" : candidate.facebook_url ? "Facebook" : "",
     weak_point: "Перевірити медійну подачу і соцмережі.",
     offer_angle: "Показати людину за бізнесом і підсилити довіру.",
     status: "Новий",
@@ -1060,8 +1074,9 @@ export async function addCandidateToCrm(candidateId: string, priority: "Medium" 
       `Media level: ${candidate.media_level}`,
       `Media notes: ${candidate.media_notes}`,
       `Чому підходить: ${candidate.why_good_for_hugo}`,
+      candidate.tiktok_url ? `TikTok: ${candidate.tiktok_url}` : "",
       `Source URL: ${candidate.osm_url}`
-    ].join("\n"),
+    ].filter(Boolean).join("\n"),
     created_at: dateKey(),
     updated_at: dateKey()
   };
@@ -1074,6 +1089,7 @@ export async function addCandidateToCrm(candidateId: string, priority: "Medium" 
   } catch (error) {
     if (!isMissingSupabaseColumn(error)) throw error;
     delete leadPayload.priority;
+    delete leadPayload.tiktok_url;
     await supabaseRequest<null>("leads", "on_conflict=id", {
       method: "POST",
       headers: { prefer: "resolution=merge-duplicates,return=minimal" },
@@ -1097,7 +1113,7 @@ export async function findLeadCandidates(options: { limit?: number; city?: strin
     ? categories
     : [{ niche: options.nicheQuery?.trim() || "Власна ніша", tags: [fallbackTag, '["name"]'].filter(Boolean) }];
   const [leads, existingCandidates] = await Promise.all([
-    supabaseRequest<LeadLookup[]>("leads", "select=id,business_name,city,website_url,instagram_url,facebook_url,phone,email"),
+    readLeadsForLookup(),
     readCandidateStore()
   ]);
   const found: LeadCandidate[] = [];

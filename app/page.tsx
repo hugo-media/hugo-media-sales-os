@@ -56,6 +56,7 @@ type Lead = {
   contact_name: string;
   instagram_url: string;
   facebook_url: string;
+  tiktok_url: string;
   website_url: string;
   phone: string;
   email: string;
@@ -518,9 +519,10 @@ const isTaskForClosedLead = (task: Pick<Task, "related_lead_id" | "title">, lead
 const contentChannelLabel = (lead: Lead) => {
   const channels = [
     lead.instagram_url ? "Instagram" : "",
+    lead.tiktok_url ? "TikTok" : "",
     lead.facebook_url ? "Facebook" : "",
     lead.website_url ? "сайт" : "",
-    !lead.instagram_url && !lead.facebook_url && !lead.website_url && lead.contact_channel ? lead.contact_channel : ""
+    !lead.instagram_url && !lead.tiktok_url && !lead.facebook_url && !lead.website_url && lead.contact_channel ? lead.contact_channel : ""
   ].filter(Boolean);
   return channels.length ? channels.join(", ") : "ваші відкриті канали";
 };
@@ -577,6 +579,7 @@ const exportLeadsCsv = (leads: Lead[]) => {
     "city",
     "contact_name",
     "instagram_url",
+    "tiktok_url",
     "phone",
     "email",
     "status",
@@ -596,6 +599,7 @@ const exportLeadsCsv = (leads: Lead[]) => {
     lead.city,
     lead.contact_name,
     lead.instagram_url,
+    lead.tiktok_url,
     lead.phone,
     lead.email,
     visibleLeadStatus(lead.status),
@@ -626,7 +630,17 @@ const parseLeadImport = (text: string, today: string, packages: PackageItem[]) =
     .map((row) => row.trim())
     .filter(Boolean)
     .flatMap((row) => {
-      const [businessName, niche, city, instagramUrl, contactName, packageName, value, source, priority, lastMessage, proposalDate] = row.split(";").map((cell) => cell.trim());
+      const cells = row.split(";").map((cell) => cell.trim());
+      const hasTiktokColumn = cells.length >= 12;
+      const [businessName, niche, city, instagramUrl] = cells;
+      const tiktokUrl = hasTiktokColumn ? cells[4] : "";
+      const contactName = hasTiktokColumn ? cells[5] : cells[4];
+      const packageName = hasTiktokColumn ? cells[6] : cells[5];
+      const value = hasTiktokColumn ? cells[7] : cells[6];
+      const source = hasTiktokColumn ? cells[8] : cells[7];
+      const priority = hasTiktokColumn ? cells[9] : cells[8];
+      const lastMessage = hasTiktokColumn ? cells[10] : cells[9];
+      const proposalDate = hasTiktokColumn ? cells[11] : cells[10];
       if (!businessName) {
         skipped += 1;
         return [];
@@ -639,11 +653,12 @@ const parseLeadImport = (text: string, today: string, packages: PackageItem[]) =
         city: city || "",
         contact_name: contactName || "",
         instagram_url: instagramUrl || "",
+        tiktok_url: tiktokUrl || "",
         facebook_url: "",
         website_url: "",
         phone: "",
         email: "",
-        contact_channel: instagramUrl ? "Instagram" : "",
+        contact_channel: instagramUrl ? "Instagram" : tiktokUrl ? "TikTok" : "",
         weak_point: "",
         offer_angle: "",
         status: "Новий" as LeadStatus,
@@ -673,6 +688,7 @@ const seedLeads: Lead[] = [
     city: "Варшава",
     contact_name: "Олена",
     instagram_url: "https://instagram.com/legalway",
+    tiktok_url: "",
     facebook_url: "",
     website_url: "https://legalway.example",
     phone: "+48 500 100 200",
@@ -702,6 +718,7 @@ const seedLeads: Lead[] = [
     city: "Краків",
     contact_name: "Марина",
     instagram_url: "https://instagram.com/beautypro",
+    tiktok_url: "",
     facebook_url: "",
     website_url: "",
     phone: "+48 501 222 333",
@@ -731,6 +748,7 @@ const seedLeads: Lead[] = [
     city: "Вроцлав",
     contact_name: "Андрій",
     instagram_url: "",
+    tiktok_url: "",
     facebook_url: "https://facebook.com/autohelp",
     website_url: "https://autohelp.example",
     phone: "+48 502 333 444",
@@ -1072,16 +1090,26 @@ function leadToRow(lead: Lead): LeadRow {
 
 function compatibleLeadToRow(lead: Lead) {
   const row = leadToRow(lead) as unknown as Record<string, unknown>;
+  if (lead.tiktok_url && typeof row.notes === "string" && !row.notes.includes("TikTok:")) {
+    row.notes = [row.notes, `TikTok: ${lead.tiktok_url}`].filter(Boolean).join("\n");
+  }
   delete row.priority;
   delete row.last_message;
   delete row.proposal_sent_date;
+  delete row.tiktok_url;
   return row;
+}
+
+function tiktokFromNotes(notes?: string | null) {
+  const match = notes?.match(/TikTok:\s*(https?:\/\/[^\s]+)/i);
+  return match?.[1] ?? "";
 }
 
 function rowToLead(lead: LeadRow): Lead {
   return {
     ...lead,
     priority: normalizeLeadPriority(lead.priority),
+    tiktok_url: lead.tiktok_url || tiktokFromNotes(lead.notes),
     last_message: lead.last_message ?? "",
     deal_value: numericValue(lead.deal_value),
     first_contact_date: nullDateToEmpty(lead.first_contact_date),
@@ -1555,6 +1583,7 @@ export default function SalesOs() {
     return {
       ...lead,
       priority: normalizeLeadPriority(lead.priority),
+      tiktok_url: lead.tiktok_url || tiktokFromNotes(lead.notes),
       last_message: lead.last_message ?? "",
       first_contact_date: normalizeDateInput(lead.first_contact_date) || today,
       last_contact_date: normalizeDateInput(lead.last_contact_date) || today,
@@ -1865,8 +1894,9 @@ export default function SalesOs() {
       const sameName = lead.business_name.trim().toLowerCase() === candidate.business_name.trim().toLowerCase();
       const sameWebsite = candidate.website_url && lead.website_url === candidate.website_url;
       const sameInstagram = candidate.instagram_url && lead.instagram_url === candidate.instagram_url;
+      const sameTiktok = candidate.tiktok_url && lead.tiktok_url === candidate.tiktok_url;
       const sameFacebook = candidate.facebook_url && lead.facebook_url === candidate.facebook_url;
-      return sameName || sameWebsite || sameInstagram || sameFacebook;
+      return sameName || sameWebsite || sameInstagram || sameTiktok || sameFacebook;
     });
 
     if (duplicate) {
@@ -1899,6 +1929,7 @@ export default function SalesOs() {
       city: candidate.city,
       contact_name: "",
       instagram_url: candidate.instagram_url,
+      tiktok_url: candidate.tiktok_url,
       facebook_url: candidate.facebook_url,
       website_url: candidate.website_url,
       phone: candidate.phone,
@@ -3289,6 +3320,7 @@ function LeadDetail({ lead, history, onBack, onStatus, onEdit, onDelete, onTask 
     ["Телефон", lead.phone],
     ["Email", lead.email],
     ["Instagram", lead.instagram_url],
+    ["TikTok", lead.tiktok_url],
     ["Facebook", lead.facebook_url],
     ["Сайт", lead.website_url],
     ["Слабке місце", lead.weak_point],
@@ -3397,6 +3429,7 @@ function LeadSidePanel({
     ["Телефон", lead.phone],
     ["Email", lead.email],
     ["Instagram", lead.instagram_url],
+    ["TikTok", lead.tiktok_url],
     ["Сайт", lead.website_url],
     ["Сума", moneyAmount(numericValue(lead.deal_value))]
   ];
@@ -4795,6 +4828,7 @@ function LeadForm({ lead, packages, today, onClose, onSave }: { lead: Lead | nul
   const [form, setForm] = useState<Lead>(
     lead ? {
       ...lead,
+      tiktok_url: lead.tiktok_url ?? "",
       status: visibleLeadStatus(lead.status),
       priority: normalizeLeadPriority(lead.priority),
       last_message: lead.last_message ?? "",
@@ -4806,6 +4840,7 @@ function LeadForm({ lead, packages, today, onClose, onSave }: { lead: Lead | nul
       city: "",
       contact_name: "",
       instagram_url: "",
+      tiktok_url: "",
       facebook_url: "",
       website_url: "",
       phone: "",
@@ -4850,6 +4885,7 @@ function LeadForm({ lead, packages, today, onClose, onSave }: { lead: Lead | nul
           <Input label="Місто" value={form.city} onChange={(value) => setField("city", value)} />
           <Input label="Контактна особа" value={form.contact_name} onChange={(value) => setField("contact_name", value)} />
           <Input label="Instagram" value={form.instagram_url} onChange={(value) => setField("instagram_url", value)} />
+          <Input label="TikTok" value={form.tiktok_url} onChange={(value) => setField("tiktok_url", value)} />
           <Input label="Телефон" value={form.phone} onChange={(value) => setField("phone", value)} />
           <Select label="Статус" value={visibleLeadStatus(form.status)} onChange={(value) => setField("status", value as LeadStatus)} options={statuses} />
           <Select label="Priority" value={normalizeLeadPriority(form.priority)} onChange={(value) => setField("priority", value as LeadPriority)} options={leadPriorities} />

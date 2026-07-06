@@ -8,6 +8,7 @@ create table if not exists public.leads (
   contact_name text,
   instagram_url text,
   facebook_url text,
+  tiktok_url text,
   website_url text,
   phone text,
   email text,
@@ -35,6 +36,9 @@ add column if not exists last_message text not null default '';
 
 alter table public.leads
 add column if not exists proposal_sent_date date;
+
+alter table public.leads
+add column if not exists tiktok_url text not null default '';
 
 create table if not exists public.lead_candidates (
   id uuid primary key default gen_random_uuid(),
