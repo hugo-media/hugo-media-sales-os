@@ -187,38 +187,74 @@ const targetKeywords = [...ukrainianKeywords, "pobyt", "legalizacja", "karta pob
 const candidateSettingsKey = "lead_candidates";
 const searchQuotaSettingsKey = "lead_search_quota";
 const defaultDailySearchLimit = 15;
-const countrySearchMeta: Record<string, { label: string; gl: string }> = {
-  poland: { label: "Poland", gl: "pl" },
-  polska: { label: "Poland", gl: "pl" },
-  польща: { label: "Poland", gl: "pl" },
-  pl: { label: "Poland", gl: "pl" },
-  germany: { label: "Germany", gl: "de" },
-  deutschland: { label: "Germany", gl: "de" },
-  німеччина: { label: "Germany", gl: "de" },
-  de: { label: "Germany", gl: "de" },
-  czechia: { label: "Czechia", gl: "cz" },
-  czech: { label: "Czechia", gl: "cz" },
-  чехія: { label: "Czechia", gl: "cz" },
-  cz: { label: "Czechia", gl: "cz" },
-  slovakia: { label: "Slovakia", gl: "sk" },
-  словаччина: { label: "Slovakia", gl: "sk" },
-  sk: { label: "Slovakia", gl: "sk" },
-  austria: { label: "Austria", gl: "at" },
-  австрія: { label: "Austria", gl: "at" },
-  netherlands: { label: "Netherlands", gl: "nl" },
-  нідерланди: { label: "Netherlands", gl: "nl" },
-  france: { label: "France", gl: "fr" },
-  франція: { label: "France", gl: "fr" },
-  spain: { label: "Spain", gl: "es" },
-  іспанія: { label: "Spain", gl: "es" },
-  italy: { label: "Italy", gl: "it" },
-  італія: { label: "Italy", gl: "it" },
-  portugal: { label: "Portugal", gl: "pt" },
-  португалія: { label: "Portugal", gl: "pt" },
-  belgium: { label: "Belgium", gl: "be" },
-  бельгія: { label: "Belgium", gl: "be" },
-  ireland: { label: "Ireland", gl: "ie" },
-  ірландія: { label: "Ireland", gl: "ie" }
+type SearchCountry = { key: string; label: string; gl: string; signals: string[]; negativeSignals: string[] };
+const countrySignals: Record<string, string[]> = {
+  poland: ["poland", "polska", "польща", ".pl", "warszawa", "warsaw", "kraków", "krakow", "wrocław", "wroclaw", "poznań", "poznan", "gdańsk", "gdansk", "łódź", "lodz"],
+  germany: ["germany", "deutschland", "німеччина", ".de", "berlin", "hamburg", "münchen", "munich", "köln", "cologne", "frankfurt", "düsseldorf", "dusseldorf"],
+  czechia: ["czechia", "czech republic", "česko", "чехія", ".cz", "praha", "prague", "brno", "ostrava", "plzeň", "plzen"],
+  slovakia: ["slovakia", "slovensko", "словаччина", ".sk", "bratislava", "košice", "kosice", "žilina", "zilina"],
+  austria: ["austria", "österreich", "oesterreich", "австрія", ".at", "wien", "vienna", "graz", "linz", "salzburg"],
+  netherlands: ["netherlands", "nederland", "holland", "нідерланди", ".nl", "amsterdam", "rotterdam", "den haag", "utrecht"],
+  france: ["france", "франція", ".fr", "paris", "lyon", "marseille", "nice"],
+  spain: ["spain", "españa", "espana", "іспанія", ".es", "madrid", "barcelona", "valencia", "málaga", "malaga"],
+  italy: ["italy", "italia", "італія", ".it", "roma", "rome", "milano", "milan", "napoli", "torino"],
+  portugal: ["portugal", "португалія", ".pt", "lisboa", "lisbon", "porto", "braga"],
+  belgium: ["belgium", "belgië", "belgie", "бельгія", ".be", "bruxelles", "brussels", "antwerpen", "gent"],
+  ireland: ["ireland", "ірландія", ".ie", "dublin", "cork", "galway"]
+};
+const countryDefinitions: Record<string, Omit<SearchCountry, "negativeSignals">> = {
+  poland: { key: "poland", label: "Poland", gl: "pl", signals: countrySignals.poland },
+  germany: { key: "germany", label: "Germany", gl: "de", signals: countrySignals.germany },
+  czechia: { key: "czechia", label: "Czechia", gl: "cz", signals: countrySignals.czechia },
+  slovakia: { key: "slovakia", label: "Slovakia", gl: "sk", signals: countrySignals.slovakia },
+  austria: { key: "austria", label: "Austria", gl: "at", signals: countrySignals.austria },
+  netherlands: { key: "netherlands", label: "Netherlands", gl: "nl", signals: countrySignals.netherlands },
+  france: { key: "france", label: "France", gl: "fr", signals: countrySignals.france },
+  spain: { key: "spain", label: "Spain", gl: "es", signals: countrySignals.spain },
+  italy: { key: "italy", label: "Italy", gl: "it", signals: countrySignals.italy },
+  portugal: { key: "portugal", label: "Portugal", gl: "pt", signals: countrySignals.portugal },
+  belgium: { key: "belgium", label: "Belgium", gl: "be", signals: countrySignals.belgium },
+  ireland: { key: "ireland", label: "Ireland", gl: "ie", signals: countrySignals.ireland }
+};
+function searchCountry(key: keyof typeof countryDefinitions): SearchCountry {
+  const base = countryDefinitions[key];
+  const negativeSignals = Object.entries(countrySignals)
+    .filter(([countryKey]) => countryKey !== key)
+    .flatMap(([, signals]) => signals);
+  return { ...base, negativeSignals };
+}
+const countrySearchMeta: Record<string, SearchCountry> = {
+  poland: searchCountry("poland"),
+  polska: searchCountry("poland"),
+  польща: searchCountry("poland"),
+  pl: searchCountry("poland"),
+  germany: searchCountry("germany"),
+  deutschland: searchCountry("germany"),
+  німеччина: searchCountry("germany"),
+  de: searchCountry("germany"),
+  czechia: searchCountry("czechia"),
+  czech: searchCountry("czechia"),
+  чехія: searchCountry("czechia"),
+  cz: searchCountry("czechia"),
+  slovakia: searchCountry("slovakia"),
+  словаччина: searchCountry("slovakia"),
+  sk: searchCountry("slovakia"),
+  austria: searchCountry("austria"),
+  австрія: searchCountry("austria"),
+  netherlands: searchCountry("netherlands"),
+  нідерланди: searchCountry("netherlands"),
+  france: searchCountry("france"),
+  франція: searchCountry("france"),
+  spain: searchCountry("spain"),
+  іспанія: searchCountry("spain"),
+  italy: searchCountry("italy"),
+  італія: searchCountry("italy"),
+  portugal: searchCountry("portugal"),
+  португалія: searchCountry("portugal"),
+  belgium: searchCountry("belgium"),
+  бельгія: searchCountry("belgium"),
+  ireland: searchCountry("ireland"),
+  ірландія: searchCountry("ireland")
 };
 const searchTermsByNiche: Record<string, string[]> = {
   "Легалізація / юристи": ["legalizacja pobytu", "kancelaria prawna", "immigration lawyer", "visa lawyer", "legal office"],
@@ -230,6 +266,52 @@ const searchTermsByNiche: Record<string, string[]> = {
   Страхування: ["insurance agency", "ubezpieczenia", "insurance broker"],
   Медицина: ["clinic", "medical center", "dentist", "doctor"],
   Переклади: ["translation office", "tłumacz", "translator"]
+};
+const localizedTermsByCountry: Record<string, Partial<Record<string, string[]>>> = {
+  poland: {
+    "Легалізація / юристи": ["legalizacja pobytu", "kancelaria prawna dla ukraińców", "ukraiński prawnik", "immigration lawyer"],
+    "Бухгалтерія": ["biuro rachunkowe dla ukraińców", "ukraińska księgowość", "accounting office"],
+    Beauty: ["ukraiński salon beauty", "salon kosmetyczny ukraiński", "hair salon ukrainian"],
+    Авто: ["ukraiński auto serwis", "auto serwis dla ukraińców", "mechanic ukrainian"],
+    Освіта: ["ukraińska szkoła", "kursy dla ukraińców", "language school ukrainian"],
+    Нерухомість: ["nieruchomości dla ukraińców", "ukraińskie biuro nieruchomości", "real estate ukrainian"],
+    Страхування: ["ubezpieczenia dla ukraińców", "ukraińska agencja ubezpieczeń", "insurance ukrainian"],
+    Медицина: ["ukraińska klinika", "lekarz ukraiński", "medical center ukrainian"],
+    Переклади: ["tłumacz ukraiński", "tłumaczenia ukraiński", "translation office ukrainian"]
+  },
+  germany: {
+    "Легалізація / юристи": ["ukrainische Kanzlei", "ukrainischer Anwalt", "immigration lawyer ukrainian"],
+    "Бухгалтерія": ["ukrainische Buchhaltung", "Steuerberater ukrainisch", "accounting ukrainian"],
+    Beauty: ["ukrainisches Beauty Studio", "ukrainischer Friseur", "beauty salon ukrainian"],
+    Авто: ["ukrainische Autowerkstatt", "ukrainischer Mechaniker", "car repair ukrainian"],
+    Освіта: ["ukrainische Schule", "Sprachschule ukrainisch", "courses for ukrainians"],
+    Нерухомість: ["Immobilien ukrainisch", "Makler ukrainisch", "real estate ukrainian"],
+    Страхування: ["Versicherung ukrainisch", "ukrainischer Versicherungsmakler", "insurance ukrainian"],
+    Медицина: ["ukrainischer Arzt", "ukrainische Klinik", "medical center ukrainian"],
+    Переклади: ["ukrainischer Übersetzer", "Übersetzung ukrainisch", "translation ukrainian"]
+  },
+  czechia: {
+    "Легалізація / юристи": ["ukrajinský právník", "advokát pro ukrajince", "immigration lawyer ukrainian"],
+    "Бухгалтерія": ["účetnictví pro ukrajince", "ukrajinská účetní", "accounting ukrainian"],
+    Beauty: ["ukrajinský salon krásy", "beauty salon ukrainian"],
+    Авто: ["ukrajinský autoservis", "mechanic ukrainian"],
+    Освіта: ["ukrajinská škola", "kurzy pro ukrajince", "language school ukrainian"],
+    Нерухомість: ["reality pro ukrajince", "real estate ukrainian"],
+    Страхування: ["pojištění pro ukrajince", "insurance ukrainian"],
+    Медицина: ["ukrajinský lékař", "ukrajinská klinika", "medical ukrainian"],
+    Переклади: ["ukrajinský překladatel", "translation ukrainian"]
+  },
+  slovakia: {
+    "Легалізація / юристи": ["ukrajinský právnik", "advokát pre ukrajincov", "immigration lawyer ukrainian"],
+    "Бухгалтерія": ["účtovníctvo pre ukrajincov", "accounting ukrainian"],
+    Beauty: ["ukrajinský salón krásy", "beauty salon ukrainian"],
+    Авто: ["ukrajinský autoservis", "mechanic ukrainian"],
+    Освіта: ["ukrajinská škola", "kurzy pre ukrajincov", "language school ukrainian"],
+    Нерухомість: ["reality pre ukrajincov", "real estate ukrainian"],
+    Страхування: ["poistenie pre ukrajincov", "insurance ukrainian"],
+    Медицина: ["ukrajinský lekár", "ukrajinská klinika", "medical ukrainian"],
+    Переклади: ["ukrajinský prekladateľ", "translation ukrainian"]
+  }
 };
 
 function dailySearchLimit() {
@@ -371,6 +453,28 @@ function hasUkrainianSignal(candidate: Pick<LeadCandidate, "business_name" | "ad
     candidate.linkedin_url,
     evidenceText
   ].join(" "));
+}
+
+function textHasAnySignal(text: string, signals: string[]) {
+  const lower = text.toLowerCase();
+  return signals.some((signal) => lower.includes(signal));
+}
+
+function countryMatchesCandidate(country: SearchCountry, candidate: Pick<LeadCandidate, "business_name" | "address" | "website_url" | "instagram_url" | "facebook_url" | "tiktok_url" | "youtube_url" | "linkedin_url">, evidenceText = "") {
+  if (country.key === "custom") return true;
+  const text = [
+    candidate.business_name,
+    candidate.address,
+    candidate.website_url,
+    candidate.instagram_url,
+    candidate.facebook_url,
+    candidate.tiktok_url,
+    candidate.youtube_url,
+    candidate.linkedin_url,
+    evidenceText
+  ].join(" ");
+  if (textHasAnySignal(text, country.negativeSignals)) return false;
+  return textHasAnySignal(text, country.signals);
 }
 
 function isDirectoryUrl(value = "") {
@@ -619,13 +723,15 @@ function resolveSearchCountry(locationQuery?: string) {
   const normalized = normalizeLookup(locationQuery);
   if (normalized && countrySearchMeta[normalized]) return countrySearchMeta[normalized];
   const city = locationQuery?.trim();
-  return { label: city || "Europe", gl: "pl" };
+  return { key: "custom", label: city || "Europe", gl: "pl", signals: city ? [city.toLowerCase()] : [], negativeSignals: [] };
 }
 
-function serperTerms(niche: string, nicheQuery?: string) {
+function serperTerms(niche: string, nicheQuery: string | undefined, country: SearchCountry) {
   const custom = nicheQuery?.trim();
-  const terms = searchTermsByNiche[niche] ?? [];
-  return [...new Set([...(custom ? [custom] : []), ...terms])].slice(0, 3);
+  const localized = localizedTermsByCountry[country.key]?.[niche] ?? [];
+  const terms = localized.length ? localized : searchTermsByNiche[niche] ?? [];
+  const includeCustom = custom && !terms.length;
+  return [...new Set([...(includeCustom ? [custom] : []), ...terms])].slice(0, 3);
 }
 
 async function fetchSerper(endpoint: "places" | "search", body: Record<string, unknown>) {
@@ -721,8 +827,9 @@ async function findSerperCandidates(options: {
 }) {
   const country = resolveSearchCountry(options.locationQuery);
   const category = options.categories[0];
-  const terms = serperTerms(category.niche, options.nicheQuery);
-  const query = `(${terms.join(" OR ")}) (ukrainian OR ukraińska OR ukraińcy OR українська OR українці) ${country.label}`;
+  const terms = serperTerms(category.niche, options.nicheQuery, country);
+  const countryTerm = country.key === "custom" ? country.label : `in ${country.label}`;
+  const query = `(${terms.join(" OR ")}) (ukrainian OR ukraińska OR ukraińcy OR українська OR українці) ${countryTerm}`;
   const searchBody = { q: query, gl: country.gl, hl: "uk", num: Math.min(10, options.limit) };
   const placesData = await fetchSerper("places", searchBody);
   const places = [...(placesData.places ?? []), ...(placesData.localResults ?? [])];
@@ -743,6 +850,7 @@ async function findSerperCandidates(options: {
     const evidenceText = `${place.title ?? ""} ${place.address ?? ""} ${socials.ukrainian_signal ? "ukrainian" : ""}`;
     if (!hasAnySocial(candidateBase)) continue;
     if (!hasUkrainianSignal(candidateBase, evidenceText)) continue;
+    if (!countryMatchesCandidate(country, candidateBase, evidenceText)) continue;
     const score = qualityScore(candidateBase, evidenceText, place.rating, place.reviews);
     const candidate: LeadCandidate = { ...candidateBase, ...score };
     if (candidate.media_score < 45) continue;
@@ -769,6 +877,7 @@ async function findSerperCandidates(options: {
     const evidenceText = `${result.title ?? ""} ${result.snippet ?? ""} ${socials.ukrainian_signal ? "ukrainian" : ""}`;
     if (!hasAnySocial(candidateBase)) continue;
     if (!hasUkrainianSignal(candidateBase, evidenceText)) continue;
+    if (!countryMatchesCandidate(country, candidateBase, evidenceText)) continue;
     const score = qualityScore(candidateBase, evidenceText);
     const candidate: LeadCandidate = { ...candidateBase, ...score };
     if (candidate.media_score < 45) continue;
