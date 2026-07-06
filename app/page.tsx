@@ -515,11 +515,57 @@ const isTaskForClosedLead = (task: Pick<Task, "related_lead_id" | "title">, lead
   });
 };
 
+const hugoCollaborationFormats = [
+  {
+    name: "Стартер",
+    summary: "1 знімальний день, 2–3 години зйомки, 30+ коротких відео / матеріалів, адаптація для TikTok, Instagram, Facebook і YouTube.",
+    bestFor: "швидко протестувати медійну присутність без великих вкладень"
+  },
+  {
+    name: "Стандарт",
+    summary: "4 знімальні дні на місяць, 30+ відео з кожного дня, системний потік контенту для всіх ключових платформ.",
+    bestFor: "показати бізнес зсередини і запустити стабільну довіру"
+  },
+  {
+    name: "Максимум",
+    summary: "8 знімальних днів за місяць, повноцінна медійна присутність, контент на місяць+ уперед і медійна воронка з соцмереж.",
+    bestFor: "масштабувати видимість і регулярно приводити клієнтські дотики"
+  },
+  {
+    name: "Партнерство в тематичному напрямку",
+    summary: "регулярні згадки, Telegram-публікації, експертні коментарі, інтеграції в тематичний контент, заявки, ефіри або спільні матеріали.",
+    bestFor: "експертів і компаній у темах легалізації, бізнесу, авто, освіти, медицини, нерухомості, роботи чи фінансів"
+  }
+];
+const hugoFormatsUrl = "https://hugosite-lac.vercel.app/business";
+
+const getRecommendedCollaborationFormat = (lead: Lead) => {
+  const packageName = lead.package_interest.toLowerCase();
+  if (packageName.includes("партнер")) return hugoCollaborationFormats[3];
+  if (packageName.includes("максим") || packageName.includes("повна") || lead.deal_value >= 2000) return hugoCollaborationFormats[2];
+  if (packageName.includes("стандарт") || packageName.includes("серія") || lead.deal_value >= 1000) return hugoCollaborationFormats[1];
+  if (packageName.includes("стартер") || packageName.includes("візит") || lead.deal_value > 0) return hugoCollaborationFormats[0];
+  if (["Легалізація", "Юристи", "Бухгалтерія", "Авто", "Медицина", "Освіта", "Нерухомість", "Фінанси"].includes(lead.niche)) return hugoCollaborationFormats[3];
+  return hugoCollaborationFormats[0];
+};
+
 const buildPersonalizedMessage = (lead: Lead) => {
   const name = lead.contact_name ? `, ${lead.contact_name}` : "";
   const angle = lead.offer_angle || `показати ${lead.business_name} не просто як послугу, а як історію людини за бізнесом`;
   const weakPoint = lead.weak_point ? ` Бачу потенціал: ${lead.weak_point}` : "";
-  return `Вітаю${name}! Я Hugo з Hugo Media. Побачив ${lead.business_name} і думаю, що тут можна ${angle}.${weakPoint} Можу запропонувати короткий медійний формат, який підсилить довіру до вас у ніші "${lead.niche}".`;
+  const recommendedFormat = getRecommendedCollaborationFormat(lead);
+  const formats = hugoCollaborationFormats
+    .map((format) => `${format.name}: ${format.summary}`)
+    .join("\n");
+  return [
+    `Вітаю${name}! Я Hugo з Hugo Media Group. Побачив ${lead.business_name} і думаю, що тут можна ${angle}.`,
+    weakPoint,
+    `Мій формат — це не SMM, не UGC і не класична реклама. Це авторська медійна присутність: показати людину за бізнесом, пояснити цінність, створити довіру і дати аудиторії причину звернутися саме до вас.`,
+    `Для вашої ніші "${lead.niche || "бізнес"}" я б почав з формату "${recommendedFormat.name}", бо він допомагає ${recommendedFormat.bestFor}.`,
+    `Формати співпраці Hugo Media Group:\n${formats}`,
+    `Деталі форматів можна подивитися тут: ${hugoFormatsUrl}`,
+    `Якщо актуально, можу запропонувати коротку ідею першої зйомки саме для ${lead.business_name} і показати, які матеріали можна отримати після старту.`
+  ].filter(Boolean).join("\n\n");
 };
 
 const csvEscape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
