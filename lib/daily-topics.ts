@@ -298,6 +298,7 @@ function fallbackTopics(sources: Array<{ title: string; url: string; snippet: st
   ];
   const topics = Array.from({ length: 10 }, (_, index) => {
     const source = base[index % base.length];
+    const productionStatus: DailyContentTopic["production_status"] = index < 3 ? "Зняти першим" : "Ідея";
     return {
       id: newId(`fallback-topic-${index + 1}`),
       title: source.title,
@@ -344,7 +345,7 @@ function fallbackTopics(sources: Array<{ title: string; url: string; snippet: st
       comment_score: Math.max(6, 9 - Math.floor(index / 3)),
       emotion_score: Math.max(6, 8 - Math.floor(index / 4)),
       ease_score: 8,
-      production_status: index < 3 ? "Зняти першим" : "Ідея",
+      production_status: productionStatus,
       views: 0,
       comments: 0,
       saves: 0,
