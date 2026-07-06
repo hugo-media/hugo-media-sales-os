@@ -203,7 +203,7 @@ async function analyzeWithOpenAI(sources: Array<{ title: string; url: string; sn
       model: process.env.OPENAI_TOPIC_MODEL || "gpt-4o-mini",
       input: prompt,
       temperature: 0.35,
-      max_output_tokens: 2500
+      max_output_tokens: 3500
     }),
     cache: "no-store"
   });
