@@ -515,56 +515,52 @@ const isTaskForClosedLead = (task: Pick<Task, "related_lead_id" | "title">, lead
   });
 };
 
-const hugoCollaborationFormats = [
-  {
-    name: "Стартер",
-    summary: "1 знімальний день, 2–3 години зйомки, 30+ коротких відео / матеріалів, адаптація для TikTok, Instagram, Facebook і YouTube.",
-    bestFor: "швидко протестувати медійну присутність без великих вкладень"
-  },
-  {
-    name: "Стандарт",
-    summary: "4 знімальні дні на місяць, 30+ відео з кожного дня, системний потік контенту для всіх ключових платформ.",
-    bestFor: "показати бізнес зсередини і запустити стабільну довіру"
-  },
-  {
-    name: "Максимум",
-    summary: "8 знімальних днів за місяць, повноцінна медійна присутність, контент на місяць+ уперед і медійна воронка з соцмереж.",
-    bestFor: "масштабувати видимість і регулярно приводити клієнтські дотики"
-  },
-  {
-    name: "Партнерство в тематичному напрямку",
-    summary: "регулярні згадки, Telegram-публікації, експертні коментарі, інтеграції в тематичний контент, заявки, ефіри або спільні матеріали.",
-    bestFor: "експертів і компаній у темах легалізації, бізнесу, авто, освіти, медицини, нерухомості, роботи чи фінансів"
-  }
-];
-const hugoFormatsUrl = "https://hugosite-lac.vercel.app/business";
+const contentChannelLabel = (lead: Lead) => {
+  const channels = [
+    lead.instagram_url ? "Instagram" : "",
+    lead.facebook_url ? "Facebook" : "",
+    lead.website_url ? "сайт" : "",
+    !lead.instagram_url && !lead.facebook_url && !lead.website_url && lead.contact_channel ? lead.contact_channel : ""
+  ].filter(Boolean);
+  return channels.length ? channels.join(", ") : "ваші відкриті канали";
+};
 
-const getRecommendedCollaborationFormat = (lead: Lead) => {
-  const packageName = lead.package_interest.toLowerCase();
-  if (packageName.includes("партнер")) return hugoCollaborationFormats[3];
-  if (packageName.includes("максим") || packageName.includes("повна") || lead.deal_value >= 2000) return hugoCollaborationFormats[2];
-  if (packageName.includes("стандарт") || packageName.includes("серія") || lead.deal_value >= 1000) return hugoCollaborationFormats[1];
-  if (packageName.includes("стартер") || packageName.includes("візит") || lead.deal_value > 0) return hugoCollaborationFormats[0];
-  if (["Легалізація", "Юристи", "Бухгалтерія", "Авто", "Медицина", "Освіта", "Нерухомість", "Фінанси"].includes(lead.niche)) return hugoCollaborationFormats[3];
-  return hugoCollaborationFormats[0];
+const nichePainPoint = (lead: Lead) => {
+  const niche = lead.niche.toLowerCase();
+  if (niche.includes("легал") || niche.includes("юрист")) return "людям складно довіряти в темах документів, строків, статусів і відповідальності, тому їм потрібне не просто пояснення послуги, а відчуття, що за процесом стоїть конкретна компетентна людина";
+  if (niche.includes("бухгалтер")) return "у бухгалтерії клієнт боїться помилки, штрафів і незрозумілих процесів, тому сильніше працює контент, який пояснює підхід, порядок роботи і спокій";
+  if (niche.includes("beauty")) return "у beauty клієнт обирає не тільки послугу, а людину, стиль, атмосферу і довіру до результату";
+  if (niche.includes("авто")) return "в авто-темі люди часто бояться обману, прихованих проблем і непередбачуваних витрат, тому важливо показати прозорість, процес і реальні кейси";
+  if (niche.includes("медицин")) return "у медицині рішення приймають через довіру до спеціаліста, пояснення процесу і відчуття безпеки";
+  if (niche.includes("освіт")) return "в освіті важливо показати не тільки програму, а результат, підхід викладача і трансформацію людини";
+  if (niche.includes("нерух")) return "у нерухомості клієнту потрібні довіра, чесність, контекст району, процесу і ризиків, а не просто об'єкт чи ціна";
+  if (niche.includes("страх")) return "у страхуванні люди часто не розуміють деталей і бояться, що їх залишать самих у складний момент";
+  return "люди швидше довіряють бізнесу, коли бачать не тільки послугу, а людину, процес, цінності й реальні ситуації клієнтів";
+};
+
+const firstContentIdea = (lead: Lead) => {
+  const niche = lead.niche.toLowerCase();
+  if (niche.includes("легал") || niche.includes("юрист")) return "короткий матеріал: хто ви, з якими проблемами українців працюєте найчастіше, які помилки люди роблять перед зверненням і як ви допомагаєте пройти це спокійніше";
+  if (niche.includes("бухгалтер")) return "серію коротких пояснень: типові фінансові помилки підприємців, як ви наводите порядок у документах і що клієнт отримує після співпраці";
+  if (niche.includes("beauty")) return "живу історію майстра: підхід до клієнта, атмосфера, процес роботи, результат і чому до вас повертаються";
+  if (niche.includes("авто")) return "контент про довіру до сервісу: як ви перевіряєте авто/вирішуєте проблему, що клієнт бачить до оплати і як уникнути помилок";
+  if (niche.includes("медицин")) return "матеріал з поясненням: з якими страхами приходять клієнти, як проходить перший контакт і чому можна довіряти процесу";
+  if (niche.includes("освіт")) return "історію результату: хто приходить до вас, що змінюється після навчання і як виглядає шлях клієнта";
+  if (niche.includes("нерух")) return "матеріал про реальний шлях клієнта: як обрати, на що дивитися, яких помилок уникати і яку роль ви берете на себе";
+  return "коротку медійну історію про вас, ваш підхід, типові проблеми клієнтів і причину, чому вам можна довіряти";
 };
 
 const buildPersonalizedMessage = (lead: Lead) => {
   const name = lead.contact_name ? `, ${lead.contact_name}` : "";
   const angle = lead.offer_angle || `показати ${lead.business_name} не просто як послугу, а як історію людини за бізнесом`;
-  const weakPoint = lead.weak_point ? ` Бачу потенціал: ${lead.weak_point}` : "";
-  const recommendedFormat = getRecommendedCollaborationFormat(lead);
-  const formats = hugoCollaborationFormats
-    .map((format) => `${format.name}: ${format.summary}`)
-    .join("\n");
+  const weakPoint = lead.weak_point ? `Окремо бачу точку росту: ${lead.weak_point}` : "";
   return [
-    `Вітаю${name}! Я Hugo з Hugo Media Group. Побачив ${lead.business_name} і думаю, що тут можна ${angle}.`,
+    `Вітаю${name}! Я Hugo з Hugo Media Group. Подивився на ${lead.business_name} через ${contentChannelLabel(lead)} і бачу, що тут можна ${angle}.`,
     weakPoint,
-    `Мій формат — це не SMM, не UGC і не класична реклама. Це авторська медійна присутність: показати людину за бізнесом, пояснити цінність, створити довіру і дати аудиторії причину звернутися саме до вас.`,
-    `Для вашої ніші "${lead.niche || "бізнес"}" я б почав з формату "${recommendedFormat.name}", бо він допомагає ${recommendedFormat.bestFor}.`,
-    `Формати співпраці Hugo Media Group:\n${formats}`,
-    `Деталі форматів можна подивитися тут: ${hugoFormatsUrl}`,
-    `Якщо актуально, можу запропонувати коротку ідею першої зйомки саме для ${lead.business_name} і показати, які матеріали можна отримати після старту.`
+    `У вашій ніші "${lead.niche || "бізнес"}" головна задача така: ${nichePainPoint(lead)}.`,
+    `Що я можу дати: зробити не суху рекламу, а авторську медійну подачу - показати людину за бізнесом, пояснити вашу цінність простими словами, підсилити довіру і створити контент, який можна використовувати в Instagram, TikTok, Facebook, YouTube Shorts і в комунікації з клієнтами.`,
+    `Я б почав з такого матеріалу: ${firstContentIdea(lead)}.`,
+    `Якщо актуально, можу накидати 3 конкретні теми першої зйомки саме для ${lead.business_name}, щоб було зрозуміло, що можна зняти і яку проблему це закриє для ваших клієнтів.`
   ].filter(Boolean).join("\n\n");
 };
 
