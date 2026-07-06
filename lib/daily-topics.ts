@@ -172,7 +172,7 @@ async function analyzeWithOpenAI(sources: Array<{ title: string; url: string; sn
   if (!apiKey) return null;
 
   const sourceText = sources
-    .slice(0, 16)
+    .slice(0, 10)
     .map((source, index) => `${index + 1}. ${source.title}\n${source.snippet}\n${source.url}`)
     .join("\n\n");
 
@@ -182,12 +182,12 @@ async function analyzeWithOpenAI(sources: Array<{ title: string; url: string; sn
     "Фокус: актуальні новини, скандали, болі українців, робота, житло, документи, медицина, бізнес, коментарі людей, соціальна напруга.",
     "Кожна тема має бути не сухою новиною, а TikTok-ідеєю з конфліктом, емоцією, коментарями і чіткою позицією Hugo.",
     "Позиція Hugo: показую не просто подію, а як це впливає на українців, бізнес і людей за кордоном.",
-    "Дай для кожної теми 5 різних хуків, 45-секундний сценарій, закріплений коментар, відповіді на хейт і відповіді для залучення.",
+    "Не генеруй довгий сценарій і багато коментарів: дай ядро теми, а система сама добудує production-пакет.",
     "Оціни кожну тему числами 0-10: virality_score, conflict_score, comment_score, emotion_score, ease_score.",
     "production_status для топ-3 тем постав 'Зняти першим', для інших 'Ідея'.",
     "Не вигадуй фактів. Якщо тема базується на тренді, формулюй як гіпотезу/кут, а не як факт.",
     "Поверни тільки JSON без markdown.",
-    'Формат: {"summary":"короткий підсумок дня","topics":[{"title":"","angle":"","pain":"","hook":"","hooks":["","","","",""],"format":"","talking_points":["","",""],"script_45s":"","caption":"","cta":"","conflict":"","series":"","pinned_comment":"","hate_replies":["","",""],"engagement_replies":["","",""],"virality_score":0,"conflict_score":0,"comment_score":0,"emotion_score":0,"ease_score":0,"production_status":"Ідея","sources":[{"title":"","url":"","snippet":""}]}]}',
+    'Формат: {"summary":"короткий підсумок дня","topics":[{"title":"","angle":"","pain":"","hook":"","format":"","talking_points":["","",""],"caption":"","cta":"","conflict":"","series":"","virality_score":0,"conflict_score":0,"comment_score":0,"emotion_score":0,"ease_score":0,"production_status":"Ідея","sources":[{"title":"","url":"","snippet":""}]}]}',
     "",
     "Джерела:",
     sourceText
@@ -203,7 +203,7 @@ async function analyzeWithOpenAI(sources: Array<{ title: string; url: string; sn
       model: process.env.OPENAI_TOPIC_MODEL || "gpt-4o-mini",
       input: prompt,
       temperature: 0.35,
-      max_output_tokens: 4500
+      max_output_tokens: 2500
     }),
     cache: "no-store"
   });
