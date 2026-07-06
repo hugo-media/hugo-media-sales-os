@@ -115,34 +115,37 @@ async function fetchSerperSources() {
   const apiKey = process.env.SERPER_API_KEY;
   if (!apiKey) return [];
 
-  const results: Array<{ title: string; url: string; snippet: string }> = [];
-  for (const query of topicQueries()) {
+  const batches = await Promise.all(topicQueries().map(async (query) => {
     const response = await fetch("https://google.serper.dev/search", {
       method: "POST",
       headers: {
         "X-API-KEY": apiKey,
         "content-type": "application/json"
       },
-      body: JSON.stringify({ q: query, gl: "pl", hl: "uk", num: 8 }),
+      body: JSON.stringify({ q: query, gl: "pl", hl: "uk", num: 6 }),
       cache: "no-store"
     });
-    if (!response.ok) continue;
+    if (!response.ok) return [];
     const data = await response.json() as {
       organic?: Array<{ title?: string; link?: string; snippet?: string }>;
       news?: Array<{ title?: string; link?: string; snippet?: string }>;
     };
-    [...(data.news ?? []), ...(data.organic ?? [])].forEach((item) => {
-      if (!item.title || !item.link) return;
-      if (results.some((existing) => existing.url === item.link)) return;
-      results.push({
-        title: item.title,
-        url: item.link,
+    return [...(data.news ?? []), ...(data.organic ?? [])]
+      .filter((item) => item.title && item.link)
+      .map((item) => ({
+        title: item.title ?? "",
+        url: item.link ?? "",
         snippet: item.snippet ?? ""
-      });
-    });
-  }
+      }));
+  }));
 
-  return results.slice(0, 24);
+  const results: Array<{ title: string; url: string; snippet: string }> = [];
+  batches.flat().forEach((item) => {
+    if (results.some((existing) => existing.url === item.url)) return;
+    results.push(item);
+  });
+
+  return results.slice(0, 16);
 }
 
 function extractResponseText(data: unknown) {
@@ -169,6 +172,7 @@ async function analyzeWithOpenAI(sources: Array<{ title: string; url: string; sn
   if (!apiKey) return null;
 
   const sourceText = sources
+    .slice(0, 16)
     .map((source, index) => `${index + 1}. ${source.title}\n${source.snippet}\n${source.url}`)
     .join("\n\n");
 
@@ -198,7 +202,8 @@ async function analyzeWithOpenAI(sources: Array<{ title: string; url: string; sn
     body: JSON.stringify({
       model: process.env.OPENAI_TOPIC_MODEL || "gpt-4o-mini",
       input: prompt,
-      temperature: 0.4
+      temperature: 0.35,
+      max_output_tokens: 4500
     }),
     cache: "no-store"
   });
