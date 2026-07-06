@@ -78,6 +78,33 @@ type Lead = {
   updated_at: string;
 };
 
+type LeadCandidateStatus = "Candidate" | "Added" | "Rejected" | "Later";
+
+type LeadCandidate = {
+  id: string;
+  business_name: string;
+  niche: string;
+  city: string;
+  address: string;
+  website_url: string;
+  instagram_url: string;
+  facebook_url: string;
+  tiktok_url: string;
+  youtube_url: string;
+  linkedin_url: string;
+  phone: string;
+  email: string;
+  osm_url: string;
+  source: "OpenStreetMap" | "Google Search";
+  media_score: number;
+  media_level: "No media" | "Weak media" | "Basic media" | "Strong media" | "Perfect for Hugo";
+  media_notes: string;
+  why_good_for_hugo: string;
+  status: LeadCandidateStatus;
+  created_at: string;
+  updated_at: string;
+};
+
 type Task = {
   id: string;
   title: string;
@@ -193,7 +220,7 @@ type LeadRow = Omit<Lead, "first_contact_date" | "last_contact_date" | "follow_u
   proposal_sent_date: string | null;
 };
 type ContentRow = Omit<ContentItem, "CTA"> & { cta: string };
-type SettingRow = { key: string; value: AppSettings };
+type SettingRow<T = AppSettings> = { key: string; value: T };
 
 const statuses: LeadStatus[] = [
   "Новий",
@@ -433,6 +460,8 @@ const getSuggestedNextAction = (lead: Lead, today: string) => {
 };
 
 const isLeadClosed = (lead?: Pick<Lead, "status"> | null) => Boolean(lead && ["Закриті", "Виграно"].includes(visibleLeadStatus(lead.status)));
+
+const isCallLeadStatus = (status: LeadStatus) => status === "Дзвінок" || status === "Дзвінок заплановано";
 
 const isTaskForClosedLead = (task: Pick<Task, "related_lead_id" | "title">, leads: Lead[]) => {
   const relatedLead = leads.find((lead) => lead.id === task.related_lead_id);
@@ -837,6 +866,7 @@ const nav = [
   { id: "today", label: "Сьогодні", icon: Flame },
   { id: "dashboard", label: "Дашборд", icon: LayoutDashboard },
   { id: "leads", label: "Ліди", icon: Users },
+  { id: "candidates", label: "Кандидати", icon: Sparkles },
   { id: "pipeline", label: "Pipeline", icon: Columns3 },
   { id: "tasks", label: "Завдання", icon: ListChecks },
   { id: "followups", label: "Follow-up", icon: MessageSquare },
@@ -851,6 +881,7 @@ const routeById: Record<string, string> = {
   today: "/",
   dashboard: "/dashboard",
   leads: "/leads",
+  candidates: "/candidates",
   pipeline: "/pipeline",
   tasks: "/tasks",
   followups: "/follow-up",
@@ -1063,6 +1094,30 @@ async function fetchSupabaseSnapshot(
   }
 }
 
+async function fetchLeadCandidates(connection: SupabaseConnection) {
+  try {
+    const rows = await supabaseRequest<SettingRow<LeadCandidate[]>[]>(
+      connection,
+      "settings",
+      "select=key,value&key=eq.lead_candidates&limit=1"
+    );
+    return Array.isArray(rows[0]?.value) ? rows[0].value ?? [] : [];
+  } catch (error) {
+    console.error("Lead candidates fetch failed", error);
+    return [];
+  }
+}
+
+async function persistLeadCandidates(connection: SupabaseConnection, candidates: LeadCandidate[]) {
+  await supabaseRequest<null>(connection, "settings", "on_conflict=key", {
+    method: "POST",
+    headers: {
+      Prefer: "resolution=merge-duplicates,return=minimal"
+    },
+    body: JSON.stringify([{ key: "lead_candidates", value: candidates }])
+  });
+}
+
 async function upsertRows<T>(connection: SupabaseConnection, table: string, rows: T[]) {
   if (!rows.length) return;
 
@@ -1131,6 +1186,7 @@ export default function SalesOs() {
   const [templates, setTemplates] = useState(seedSnapshot.templates);
   const [history, setHistory] = useState(seedSnapshot.history);
   const [settings, setSettings] = useState(seedSnapshot.settings);
+  const [leadCandidates, setLeadCandidates] = useState<LeadCandidate[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
   const [dataSource, setDataSource] = useState<"local" | "supabase">(supabase ? "supabase" : "local");
   const [dataSourceNote, setDataSourceNote] = useState("");
@@ -1194,8 +1250,12 @@ export default function SalesOs() {
       }
 
       if (supabase) {
-        const { snapshot: remoteSnapshot, error } = await fetchSupabaseSnapshot(supabase);
+        const [{ snapshot: remoteSnapshot, error }, remoteCandidates] = await Promise.all([
+          fetchSupabaseSnapshot(supabase),
+          fetchLeadCandidates(supabase)
+        ]);
         if (cancelled) return;
+        setLeadCandidates(remoteCandidates);
 
         if (remoteSnapshot) {
           const remoteHasData =
@@ -1239,6 +1299,16 @@ export default function SalesOs() {
     const timer = window.setTimeout(() => syncSupabaseSnapshot(supabase, snapshot), 450);
     return () => window.clearTimeout(timer);
   }, [contentItems, dataSource, history, isHydrated, leads, settings, tasks, templates]);
+
+  useEffect(() => {
+    if (!isHydrated || !supabase || dataSource !== "supabase") return;
+    const timer = window.setTimeout(() => {
+      persistLeadCandidates(supabase, leadCandidates).catch((error) => {
+        console.error("Lead candidates sync failed", error);
+      });
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [dataSource, isHydrated, leadCandidates]);
 
   useEffect(() => {
     if (!toast) return;
@@ -1337,7 +1407,7 @@ export default function SalesOs() {
   }
 
   function isCallStatus(status: LeadStatus) {
-    return status === "Дзвінок" || status === "Дзвінок заплановано";
+    return isCallLeadStatus(status);
   }
 
   function upsertCallTaskForLead(lead: Lead) {
@@ -1600,6 +1670,90 @@ export default function SalesOs() {
     setToast(`Імпортовано лідів: ${nextLeads.length}`);
   }
 
+  function updateCandidateStatus(candidateId: string, status: LeadCandidateStatus) {
+    setLeadCandidates((current) =>
+      current.map((candidate) =>
+        candidate.id === candidateId
+          ? { ...candidate, status, updated_at: today }
+          : candidate
+      )
+    );
+  }
+
+  async function addCandidateToLeads(candidateId: string, priority: LeadPriority = "Medium") {
+    const candidate = leadCandidates.find((item) => item.id === candidateId);
+    if (!candidate) return;
+
+    const duplicate = leads.some((lead) => {
+      const sameName = lead.business_name.trim().toLowerCase() === candidate.business_name.trim().toLowerCase();
+      const sameWebsite = candidate.website_url && lead.website_url === candidate.website_url;
+      const sameInstagram = candidate.instagram_url && lead.instagram_url === candidate.instagram_url;
+      const sameFacebook = candidate.facebook_url && lead.facebook_url === candidate.facebook_url;
+      return sameName || sameWebsite || sameInstagram || sameFacebook;
+    });
+
+    if (duplicate) {
+      setToast("Такий лід вже є в CRM");
+      updateCandidateStatus(candidateId, "Later");
+      return;
+    }
+
+    const bestChannel = candidate.instagram_url
+      ? "Instagram"
+      : candidate.tiktok_url
+        ? "TikTok"
+        : candidate.facebook_url
+          ? "Facebook"
+          : candidate.website_url
+            ? "Website"
+            : "";
+    const candidateNotes = [
+      `Media score: ${candidate.media_score}/100`,
+      candidate.why_good_for_hugo ? `Чому підходить: ${candidate.why_good_for_hugo}` : "",
+      candidate.media_notes ? `Медійність: ${candidate.media_notes}` : "",
+      candidate.tiktok_url ? `TikTok: ${candidate.tiktok_url}` : "",
+      candidate.source ? `Джерело: ${candidate.source}` : ""
+    ].filter(Boolean).join("\n");
+
+    const leadToSave: Lead = normalizeLeadDates({
+      id: newId(),
+      business_name: candidate.business_name,
+      niche: candidate.niche,
+      city: candidate.city,
+      contact_name: "",
+      instagram_url: candidate.instagram_url,
+      facebook_url: candidate.facebook_url,
+      website_url: candidate.website_url,
+      phone: candidate.phone,
+      email: candidate.email,
+      contact_channel: bestChannel,
+      weak_point: "Перевірити медійну подачу, соцмережі і швидко знайти точку входу.",
+      offer_angle: "Показати людину за бізнесом і підсилити довіру через медійність.",
+      status: "Новий",
+      priority,
+      package_interest: "",
+      deal_value: priority === "Hot" ? 1000 : 0,
+      first_contact_date: today,
+      last_contact_date: today,
+      follow_up_date: "",
+      next_action: priority === "Hot"
+        ? "Перевірити соцмережі і написати персоналізоване повідомлення"
+        : "Перевірити кандидата і підготувати перше повідомлення",
+      last_message: "",
+      proposal_sent_date: "",
+      source: candidate.source,
+      notes: candidateNotes,
+      created_at: today,
+      updated_at: today
+    });
+
+    await saveLead(leadToSave);
+    updateCandidateStatus(candidateId, "Added");
+    setSelectedLeadId(leadToSave.id);
+    navigate("leads");
+    setToast("Кандидата додано в ліди");
+  }
+
   const pageTitle = nav.find((item) => item.id === active)?.label ?? "Дашборд";
 
   return (
@@ -1685,6 +1839,7 @@ export default function SalesOs() {
             today={today}
             leads={leads}
             tasks={tasks}
+            candidates={leadCandidates}
             stats={stats}
             onAddLead={() => { setEditingLead(null); setIsLeadFormOpen(true); }}
             onOpenLead={setSelectedLeadId}
@@ -1693,6 +1848,9 @@ export default function SalesOs() {
             onDone={markTaskDone}
             onOpenPipeline={() => navigate("pipeline")}
             onOpenFollowups={() => navigate("followups")}
+            onOpenCandidates={() => navigate("candidates")}
+            onAddCandidate={addCandidateToLeads}
+            onCandidateStatus={updateCandidateStatus}
             onCopied={() => setToast("Текст скопійовано")}
           />
         ) : active === "dashboard" ? (
@@ -1722,6 +1880,13 @@ export default function SalesOs() {
             onPatch={patchLead}
             onStatus={updateLeadStatus}
             onImport={importLeads}
+          />
+        ) : active === "candidates" ? (
+          <CandidatesPage
+            candidates={leadCandidates}
+            today={today}
+            onAdd={addCandidateToLeads}
+            onStatus={updateCandidateStatus}
           />
         ) : active === "pipeline" ? (
           <PipelinePage
@@ -1875,6 +2040,7 @@ function TodayPage({
   today,
   leads,
   tasks,
+  candidates,
   stats,
   onAddLead,
   onOpenLead,
@@ -1883,11 +2049,15 @@ function TodayPage({
   onDone,
   onOpenPipeline,
   onOpenFollowups,
+  onOpenCandidates,
+  onAddCandidate,
+  onCandidateStatus,
   onCopied
 }: {
   today: string;
   leads: Lead[];
   tasks: Task[];
+  candidates: LeadCandidate[];
   stats: Record<string, number>;
   onAddLead: () => void;
   onOpenLead: (id: string) => void;
@@ -1896,6 +2066,9 @@ function TodayPage({
   onDone: (id: string) => void;
   onOpenPipeline: () => void;
   onOpenFollowups: () => void;
+  onOpenCandidates: () => void;
+  onAddCandidate: (id: string, priority?: LeadPriority) => void;
+  onCandidateStatus: (id: string, status: LeadCandidateStatus) => void;
   onCopied: () => void;
 }) {
   const activeLeads = leads.filter((lead) => !["Виграно", "Закриті"].includes(visibleLeadStatus(lead.status)));
@@ -1914,6 +2087,15 @@ function TodayPage({
     .slice(0, 9);
   const topDeal = [...activeLeads].sort((a, b) => numericValue(b.deal_value) - numericValue(a.deal_value))[0];
   const todayTasks = tasks.filter((task) => task.due_date && task.due_date <= today && !["Done", "Cancelled"].includes(task.status) && !isTaskForClosedLead(task, leads)).slice(0, 6);
+  const todayCallLeads = activeLeads.filter((lead) => isCallLeadStatus(visibleLeadStatus(lead.status)) && lead.follow_up_date === today);
+  const todayCallTasks = tasks.filter((task) => task.type === "call" && task.due_date === today && !["Done", "Cancelled"].includes(task.status) && !isTaskForClosedLead(task, leads));
+  const openCandidates = candidates
+    .filter((candidate) => candidate.status === "Candidate")
+    .sort((a, b) => b.media_score - a.media_score)
+    .slice(0, 5);
+  const noResponseToClose = activeLeads
+    .filter((lead) => visibleLeadStatus(lead.status) === "Без відповіді" && lead.follow_up_date && lead.follow_up_date <= today)
+    .slice(0, 4);
   const firstPriorityLead = overdueLeads[0] ?? actionQueue[0] ?? null;
 
   async function copyLeadMessage(lead: Lead) {
@@ -2033,6 +2215,90 @@ function TodayPage({
           </Card>
 
           <Card>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <SectionTitle title="Дзвінки сьогодні" />
+              <span className="rounded-full border border-line px-2.5 py-1 text-xs font-semibold text-slate-300">
+                {todayCallLeads.length + todayCallTasks.length}
+              </span>
+            </div>
+            <div className="space-y-2">
+              {todayCallLeads.length || todayCallTasks.length ? (
+                <>
+                  {todayCallLeads.map((lead) => (
+                    <button key={lead.id} className="w-full rounded-lg border border-line bg-panel2 p-3 text-left hover:border-blue/60" onClick={() => onOpenLead(lead.id)}>
+                      <div className="font-black text-blue">{lead.business_name}</div>
+                      <div className="mt-1 text-sm text-slate-400">{lead.next_action || "Підготувати дзвінок"}</div>
+                    </button>
+                  ))}
+                  {todayCallTasks.map((task) => (
+                    <div key={task.id} className="flex items-center justify-between gap-3 rounded-lg border border-line bg-panel2 p-3">
+                      <div>
+                        <div className="font-semibold">{task.title}</div>
+                        <div className="mt-1 text-xs text-slate-400">Задача дзвінка</div>
+                      </div>
+                      <IconButton label="Виконано" onClick={() => onDone(task.id)}>
+                        <Check className="h-4 w-4" />
+                      </IconButton>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <div className="rounded-lg border border-dashed border-line p-4 text-center text-sm text-slate-500">На сьогодні дзвінків немає</div>
+              )}
+            </div>
+          </Card>
+
+          <Card>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <SectionTitle title="Кандидати з бота" />
+              <button className="rounded-lg border border-line px-3 py-2 text-sm font-semibold hover:bg-white hover:text-ink" onClick={onOpenCandidates}>
+                Всі
+              </button>
+            </div>
+            <div className="space-y-2">
+              {openCandidates.length ? openCandidates.map((candidate) => (
+                <div key={candidate.id} className="rounded-lg border border-line bg-panel2 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="line-clamp-1 font-black text-blue">{candidate.business_name}</div>
+                      <div className="mt-1 text-xs text-slate-400">{candidate.niche} · {candidate.city || "країна не вказана"} · {candidate.media_score}/100</div>
+                    </div>
+                    <button className="shrink-0 rounded-lg bg-white px-3 py-2 text-xs font-black text-ink" onClick={() => onAddCandidate(candidate.id, "Hot")}>
+                      В лід
+                    </button>
+                  </div>
+                  <div className="mt-2 line-clamp-2 text-sm text-slate-400">{candidate.why_good_for_hugo || candidate.media_notes || "Є соцмережі і український сигнал"}</div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button className="rounded-lg border border-line px-3 py-2 text-xs font-semibold" onClick={() => onAddCandidate(candidate.id, "Medium")}>Додати</button>
+                    <button className="rounded-lg border border-line px-3 py-2 text-xs font-semibold" onClick={() => onCandidateStatus(candidate.id, "Later")}>Пізніше</button>
+                    <button className="rounded-lg border border-red-400/40 px-3 py-2 text-xs font-semibold text-red-200" onClick={() => onCandidateStatus(candidate.id, "Rejected")}>Не підходить</button>
+                  </div>
+                </div>
+              )) : (
+                <div className="rounded-lg border border-dashed border-line p-4 text-center text-sm text-slate-500">Нових кандидатів немає</div>
+              )}
+            </div>
+          </Card>
+
+          <Card>
+            <SectionTitle title="Без відповіді" />
+            <div className="space-y-2">
+              {noResponseToClose.length ? noResponseToClose.map((lead) => (
+                <div key={lead.id} className="rounded-lg border border-line bg-panel2 p-3">
+                  <div className="font-black text-blue">{lead.business_name}</div>
+                  <div className="mt-1 text-sm text-slate-400">{lead.next_action || "Тиждень без відповіді. Перевірити і закрити, якщо не актуально."}</div>
+                  <div className="mt-3 flex gap-2">
+                    <button className="min-h-9 rounded-lg bg-white px-3 text-xs font-semibold text-ink" onClick={() => onOpenLead(lead.id)}>Відкрити</button>
+                    <button className="min-h-9 rounded-lg border border-line px-3 text-xs font-semibold" onClick={() => onStatus(lead.id, "Закриті")}>Закрити</button>
+                  </div>
+                </div>
+              )) : (
+                <div className="rounded-lg border border-dashed border-line p-4 text-center text-sm text-slate-500">Немає завислих без відповіді</div>
+              )}
+            </div>
+          </Card>
+
+          <Card>
             <SectionTitle title="Завдання сьогодні" />
             <div className="space-y-2">
               {todayTasks.length ? todayTasks.map((task) => (
@@ -2052,6 +2318,125 @@ function TodayPage({
           </Card>
         </div>
       </div>
+    </div>
+  );
+}
+
+function CandidatesPage({
+  candidates,
+  today,
+  onAdd,
+  onStatus
+}: {
+  candidates: LeadCandidate[];
+  today: string;
+  onAdd: (id: string, priority?: LeadPriority) => void;
+  onStatus: (id: string, status: LeadCandidateStatus) => void;
+}) {
+  const [statusFilter, setStatusFilter] = useState<LeadCandidateStatus | "Усі">("Candidate");
+  const [nicheFilter, setNicheFilter] = useState("Усі");
+  const [query, setQuery] = useState("");
+  const candidateNiches = Array.from(new Set(candidates.map((candidate) => candidate.niche).filter(Boolean))).sort();
+  const filteredCandidates = candidates
+    .filter((candidate) => {
+      const normalizedQuery = query.trim().toLowerCase();
+      const matchesQuery =
+        !normalizedQuery ||
+        [candidate.business_name, candidate.city, candidate.address, candidate.niche, candidate.why_good_for_hugo, candidate.media_notes]
+          .some((value) => value.toLowerCase().includes(normalizedQuery));
+      return (
+        matchesQuery &&
+        (statusFilter === "Усі" || candidate.status === statusFilter) &&
+        (nicheFilter === "Усі" || candidate.niche === nicheFilter)
+      );
+    })
+    .sort((a, b) => b.media_score - a.media_score);
+  const openCount = candidates.filter((candidate) => candidate.status === "Candidate").length;
+  const addedCount = candidates.filter((candidate) => candidate.status === "Added").length;
+  const laterCount = candidates.filter((candidate) => candidate.status === "Later").length;
+  const rejectedCount = candidates.filter((candidate) => candidate.status === "Rejected").length;
+
+  return (
+    <div className="space-y-5">
+      <section className="grid gap-3 md:grid-cols-4">
+        <Card>
+          <div className="text-sm text-slate-400">Нові кандидати</div>
+          <div className="mt-2 text-3xl font-black">{openCount}</div>
+          <div className="mt-1 text-xs text-slate-400">перевірити і додати</div>
+        </Card>
+        <Card>
+          <div className="text-sm text-slate-400">Додано в CRM</div>
+          <div className="mt-2 text-3xl font-black">{addedCount}</div>
+          <div className="mt-1 text-xs text-slate-400">вже стали лідами</div>
+        </Card>
+        <Card>
+          <div className="text-sm text-slate-400">Пізніше</div>
+          <div className="mt-2 text-3xl font-black">{laterCount}</div>
+          <div className="mt-1 text-xs text-slate-400">не зараз, але не в сміття</div>
+        </Card>
+        <Card>
+          <div className="text-sm text-slate-400">Відхилено</div>
+          <div className="mt-2 text-3xl font-black">{rejectedCount}</div>
+          <div className="mt-1 text-xs text-slate-400">не показувати в фокусі</div>
+        </Card>
+      </section>
+
+      <Card>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <SectionTitle title="Кандидати" />
+            <p className="-mt-2 text-sm text-slate-400">Результати бота: тільки компанії з соцмережами і українським сигналом.</p>
+          </div>
+          <span className="rounded-full border border-line px-3 py-2 text-sm text-slate-300">{formatUkrainianDate(today)}</span>
+        </div>
+        <div className="mb-4 grid gap-3 lg:grid-cols-[1.2fr_220px_220px]">
+          <input className="field min-h-10" value={query} placeholder="Пошук: бізнес, ніша, країна, сигнал" onChange={(event) => setQuery(event.target.value)} />
+          <Select value={statusFilter} onChange={(value) => setStatusFilter(value as LeadCandidateStatus | "Усі")} options={["Candidate", "Added", "Later", "Rejected", "Усі"]} />
+          <Select value={nicheFilter} onChange={setNicheFilter} options={["Усі", ...candidateNiches]} />
+        </div>
+
+        <div className="grid gap-3 xl:grid-cols-2">
+          {filteredCandidates.length ? filteredCandidates.map((candidate) => (
+            <article key={candidate.id} className="rounded-lg border border-line bg-panel2 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-lg font-black text-blue">{candidate.business_name}</div>
+                  <div className="mt-1 text-sm text-slate-400">{candidate.niche} · {candidate.city || candidate.address || "локація не вказана"}</div>
+                </div>
+                <span className="rounded-full border border-blue/40 bg-blue/10 px-3 py-1 text-sm font-black text-sky-100">
+                  {candidate.media_score}/100
+                </span>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <div className="rounded-lg border border-line bg-ink/40 p-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Чому підходить</div>
+                  <div className="mt-2 text-sm leading-6 text-slate-300">{candidate.why_good_for_hugo || "Потрібна ручна перевірка медійності."}</div>
+                </div>
+                <div className="rounded-lg border border-line bg-ink/40 p-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Український сигнал</div>
+                  <div className="mt-2 text-sm leading-6 text-slate-300">{candidate.media_notes || "Перевірити вручну перед контактом."}</div>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {candidate.website_url ? <a className="rounded-lg border border-line px-3 py-2 text-xs font-semibold hover:bg-white hover:text-ink" href={candidate.website_url} target="_blank" rel="noreferrer">Сайт</a> : null}
+                {candidate.instagram_url ? <a className="rounded-lg border border-line px-3 py-2 text-xs font-semibold hover:bg-white hover:text-ink" href={candidate.instagram_url} target="_blank" rel="noreferrer">Instagram</a> : null}
+                {candidate.tiktok_url ? <a className="rounded-lg border border-line px-3 py-2 text-xs font-semibold hover:bg-white hover:text-ink" href={candidate.tiktok_url} target="_blank" rel="noreferrer">TikTok</a> : null}
+                {candidate.facebook_url ? <a className="rounded-lg border border-line px-3 py-2 text-xs font-semibold hover:bg-white hover:text-ink" href={candidate.facebook_url} target="_blank" rel="noreferrer">Facebook</a> : null}
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button className="min-h-10 rounded-lg bg-white px-4 text-sm font-black text-ink" onClick={() => onAdd(candidate.id, "Hot")}>В лід</button>
+                <button className="min-h-10 rounded-lg border border-line px-4 text-sm font-semibold" onClick={() => onAdd(candidate.id, "Medium")}>Додати звичайно</button>
+                <button className="min-h-10 rounded-lg border border-line px-4 text-sm font-semibold" onClick={() => onStatus(candidate.id, "Later")}>Пізніше</button>
+                <button className="min-h-10 rounded-lg border border-red-400/40 px-4 text-sm font-semibold text-red-200" onClick={() => onStatus(candidate.id, "Rejected")}>Не підходить</button>
+              </div>
+            </article>
+          )) : (
+            <div className="rounded-lg border border-dashed border-line p-8 text-center text-sm text-slate-500 xl:col-span-2">
+              Кандидатів за цим фільтром немає. Запусти пошук у боті або зміни фільтр.
+            </div>
+          )}
+        </div>
+      </Card>
     </div>
   );
 }
@@ -3181,6 +3566,8 @@ function CalendarPage({
   const tomorrowLeads = activeLeads.filter((lead) => lead.follow_up_date === tomorrow);
   const overdueTasks = openTasks.filter((task) => task.due_date && task.due_date < today);
   const todayTasks = openTasks.filter((task) => task.due_date === today);
+  const todayCalls = activeLeads.filter((lead) => isCallLeadStatus(visibleLeadStatus(lead.status)) && lead.follow_up_date === today);
+  const todayCallTasks = openTasks.filter((task) => task.type === "call" && task.due_date === today);
   const monthLeads = activeLeads.filter((lead) => lead.follow_up_date?.startsWith(monthKey));
   const monthTasks = openTasks.filter((task) => task.due_date && task.due_date.startsWith(monthKey));
   const monthContent = contentItems.filter((item) => item.date.startsWith(monthKey));
@@ -3256,7 +3643,7 @@ function CalendarPage({
 
   return (
     <div className="space-y-5">
-      <section className="grid gap-3 md:grid-cols-4">
+      <section className="grid gap-3 md:grid-cols-5">
         <Card className="border-red-400/30 bg-red-500/10">
           <div className="text-sm text-red-200">Прострочено</div>
           <div className="mt-2 text-3xl font-black">{overdueLeads.length + overdueTasks.length}</div>
@@ -3271,6 +3658,11 @@ function CalendarPage({
           <div className="text-sm text-slate-400">Завтра</div>
           <div className="mt-2 text-3xl font-black">{tomorrowLeads.length}</div>
           <div className="mt-1 text-xs text-slate-400">follow-up</div>
+        </Card>
+        <Card>
+          <div className="text-sm text-slate-400">Дзвінки</div>
+          <div className="mt-2 text-3xl font-black">{todayCalls.length + todayCallTasks.length}</div>
+          <div className="mt-1 text-xs text-slate-400">на сьогодні</div>
         </Card>
         <Card>
           <div className="text-sm text-slate-400">У місяці</div>
