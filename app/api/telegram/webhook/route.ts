@@ -7,6 +7,7 @@ import {
   updateCandidateStatus
 } from "@/lib/lead-finder";
 import type { LeadCandidate } from "@/lib/lead-finder";
+import type { DailyContentTopic, DailyTopicRun } from "@/lib/daily-topics";
 
 type LeadStatus =
   | "Новий"
@@ -88,6 +89,14 @@ const leadFinderCountries = [
   { key: "belgium", label: "Бельгія" },
   { key: "ireland", label: "Ірландія" }
 ];
+const topicSettingsKey = "daily_tiktok_topics";
+const topicStatusByCode: Record<string, DailyContentTopic["production_status"]> = {
+  first: "Зняти першим",
+  shot: "Знято",
+  edited: "Змонтовано",
+  published: "Опубліковано",
+  archive: "Архів"
+};
 
 function escapeHtml(value: string) {
   return value
@@ -98,6 +107,12 @@ function escapeHtml(value: string) {
 
 function money(value: number | null | undefined) {
   return `${new Intl.NumberFormat("uk-UA").format(Math.max(0, Number(value) || 0))} €`;
+}
+
+function compact(value: string | null | undefined, fallback = "—") {
+  const text = value?.trim();
+  if (!text) return fallback;
+  return text.length > 220 ? `${text.slice(0, 217)}...` : text;
 }
 
 function visibleLeadStatus(status: LeadStatus): LeadStatus {
@@ -161,6 +176,32 @@ async function supabaseGet<T>(table: string, query: string) {
   return (await response.json()) as T;
 }
 
+async function supabaseWrite<T>(table: string, query: string, body: unknown) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error("Missing Supabase env vars");
+  }
+
+  const response = await fetch(`${supabaseUrl.replace(/\/$/, "")}/rest/v1/${table}?${query}`, {
+    method: "POST",
+    headers: {
+      apikey: supabaseKey,
+      authorization: `Bearer ${supabaseKey}`,
+      "content-type": "application/json",
+      prefer: "resolution=merge-duplicates,return=minimal"
+    },
+    body: JSON.stringify(body),
+    cache: "no-store"
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase ${table} ${response.status}: ${await response.text()}`);
+  }
+
+  return null as T;
+}
+
 function isMissingSupabaseColumn(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return message.includes("PGRST204") || message.includes("42703") || message.includes("schema cache") || message.includes("Could not find the") || message.includes("does not exist");
@@ -182,6 +223,110 @@ async function getLeadsForBot() {
   }
 }
 
+async function readTopicRuns() {
+  try {
+    const rows = await supabaseGet<Array<{ key: string; value: DailyTopicRun[] }>>(
+      "settings",
+      `select=key,value&key=eq.${topicSettingsKey}&limit=1`
+    );
+    return Array.isArray(rows[0]?.value) ? rows[0].value : [];
+  } catch (error) {
+    if (!isMissingSupabaseColumn(error)) console.error("Telegram topic settings read failed", error);
+    return [];
+  }
+}
+
+async function writeTopicRuns(runs: DailyTopicRun[]) {
+  await supabaseWrite<null>("settings", "on_conflict=key", [{ key: topicSettingsKey, value: runs.slice(0, 30) }]);
+}
+
+function topicPowerScore(topic: Partial<DailyContentTopic>) {
+  return Math.round(
+    (Number(topic.virality_score) || 0) * 2.6 +
+    (Number(topic.conflict_score) || 0) * 2.1 +
+    (Number(topic.comment_score) || 0) * 2.2 +
+    (Number(topic.emotion_score) || 0) * 1.8 +
+    (Number(topic.ease_score) || 0) * 1.3
+  );
+}
+
+function latestTopicRun(runs: DailyTopicRun[]) {
+  return [...runs].sort((a, b) => (b.created_at || b.date || "").localeCompare(a.created_at || a.date || ""))[0];
+}
+
+function topTopicItems(run?: DailyTopicRun) {
+  return (run?.topics ?? [])
+    .map((topic, index) => ({ topic, index: index + 1 }))
+    .sort((a, b) => topicPowerScore(b.topic) - topicPowerScore(a.topic))
+    .slice(0, 5);
+}
+
+function topicKeyboard(items: Array<{ index: number; topic: DailyContentTopic }>) {
+  return {
+    inline_keyboard: items.slice(0, 5).flatMap((item) => [
+      [
+        { text: `${item.index}. Зняти`, callback_data: `topic:${item.index}:shot` },
+        { text: `${item.index}. Змонтовано`, callback_data: `topic:${item.index}:edited` }
+      ],
+      [
+        { text: `${item.index}. Опубліковано`, callback_data: `topic:${item.index}:published` },
+        { text: `${item.index}. Архів`, callback_data: `topic:${item.index}:archive` }
+      ]
+    ])
+  };
+}
+
+function buildTopicsMessage(run?: DailyTopicRun) {
+  if (!run?.topics?.length) {
+    return [
+      "<b>Теми дня</b>",
+      "",
+      "Поки немає збережених тем. Натисни кнопку у CRM на сторінці «Теми дня» або дочекайся ранкового автоаналізу."
+    ].join("\n");
+  }
+
+  const top = topTopicItems(run);
+  const lines = [
+    "<b>Теми дня — що знімати першим</b>",
+    `Дата: ${escapeHtml(run.date)}`,
+    "",
+    ...top.map((item) => [
+      `${item.index}. <b>${escapeHtml(item.topic.title)}</b> · power ${topicPowerScore(item.topic)} · ${escapeHtml(item.topic.production_status || "Ідея")}`,
+      `Хук: ${escapeHtml(compact(item.topic.hook || item.topic.hooks?.[0]))}`,
+      `Суть: ${escapeHtml(compact(item.topic.angle || item.topic.pain))}`
+    ].join("\n")),
+    "",
+    "Після публікації напиши: <code>/metrics 1 12000 84 37</code>",
+    "де 1 — номер теми, далі перегляди, коментарі, збереження."
+  ];
+
+  if (appUrl) lines.push("", `<a href="${appUrl}/daily-topics">Відкрити теми в CRM</a>`);
+  return lines.join("\n\n");
+}
+
+async function updateLatestTopicStatus(index: number, status: DailyContentTopic["production_status"]) {
+  const runs = await readTopicRuns();
+  const run = latestTopicRun(runs);
+  const topic = run?.topics?.[index - 1];
+  if (!run || !topic) return null;
+  topic.production_status = status;
+  await writeTopicRuns(runs);
+  return topic;
+}
+
+async function updateLatestTopicMetrics(index: number, views: number, comments: number, saves: number) {
+  const runs = await readTopicRuns();
+  const run = latestTopicRun(runs);
+  const topic = run?.topics?.[index - 1];
+  if (!run || !topic) return null;
+  topic.views = Math.max(0, views);
+  topic.comments = Math.max(0, comments);
+  topic.saves = Math.max(0, saves);
+  topic.production_status = "Опубліковано";
+  await writeTopicRuns(runs);
+  return topic;
+}
+
 async function sendTelegram(chatId: number | string, text: string, replyMarkup?: unknown) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
@@ -198,8 +343,9 @@ async function sendTelegram(chatId: number | string, text: string, replyMarkup?:
       parse_mode: "HTML",
       reply_markup: replyMarkup ?? {
         keyboard: [
-          [{ text: "⚡ Що робити зараз" }, { text: "🔎 Пошук лідів" }],
+          [{ text: "✅ План дня" }, { text: "🎬 Теми дня" }],
           [{ text: "📞 Дзвінки" }, { text: "🔥 Кому писати" }],
+          [{ text: "🔎 Пошук лідів" }, { text: "⚡ Що робити зараз" }],
           [{ text: "⏰ Прострочені" }, { text: "💶 Pipeline" }, { text: "📋 /candidates" }],
           [{ text: "Відкрити CRM" }]
         ],
@@ -356,6 +502,73 @@ function buildStatus(leads: LeadRow[], tasks: TaskRow[], today: string) {
   return lines.join("\n");
 }
 
+function controlKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        { text: "✅ План дня", callback_data: "ctrl:plan" },
+        { text: "🎬 Теми дня", callback_data: "ctrl:topics" }
+      ],
+      [
+        { text: "📞 Дзвінки", callback_data: "ctrl:calls" },
+        { text: "🔥 Кому писати", callback_data: "ctrl:hot" }
+      ],
+      [
+        { text: "🔎 Пошук лідів", callback_data: "ctrl:find" },
+        { text: "📋 Кандидати", callback_data: "ctrl:candidates" }
+      ]
+    ]
+  };
+}
+
+function buildDayPlan(leads: LeadRow[], tasks: TaskRow[], today: string, run?: DailyTopicRun) {
+  const activeLeads = leads.filter((lead) => !isLeadClosed(lead));
+  const urgentLeads = [...activeLeads]
+    .filter((lead) => lead.follow_up_date && lead.follow_up_date <= today)
+    .sort((a, b) => leadScore(b, today) - leadScore(a, today))
+    .slice(0, 5);
+  const hotLeads = [...activeLeads]
+    .filter((lead) => ["Новий", "Контакт", "Без відповіді", "Дзвінок", "КП", "На паузі"].includes(visibleLeadStatus(lead.status)))
+    .sort((a, b) => leadScore(b, today) - leadScore(a, today))
+    .slice(0, 5);
+  const calls = [
+    ...activeLeads.filter((lead) => visibleLeadStatus(lead.status) === "Дзвінок" && lead.follow_up_date === today).map((lead) => lead.business_name),
+    ...tasks
+      .filter((task) => task.type === "call" && task.due_date === today && !["Done", "Cancelled"].includes(task.status) && !isLeadClosed(leads.find((lead) => lead.id === task.related_lead_id)))
+      .map((task) => task.title)
+  ].slice(0, 5);
+  const topTopics = topTopicItems(run).slice(0, 3);
+
+  const lines = [
+    "<b>План дня Hugo Media</b>",
+    `Дата: ${today}`,
+    "",
+    "<b>1. Продажі: зробити першим</b>",
+    ...(urgentLeads.length
+      ? urgentLeads.map((lead, index) => `${index + 1}. ${escapeHtml(lead.business_name)} · ${leadScore(lead, today)}/100\n   ${escapeHtml(leadAction(lead, today))}`)
+      : ["Немає термінових follow-up."]),
+    "",
+    "<b>2. Кому писати, щоб рухати гроші</b>",
+    ...(hotLeads.length
+      ? hotLeads.slice(0, 3).map((lead, index) => `${index + 1}. ${escapeHtml(lead.business_name)} · ${money(lead.deal_value)} · ${escapeHtml(visibleLeadStatus(lead.status))}`)
+      : ["Немає активних лідів для дотиску."]),
+    "",
+    "<b>3. Дзвінки</b>",
+    ...(calls.length ? calls.map((call) => `• ${escapeHtml(call)}`) : ["На сьогодні дзвінків немає."]),
+    "",
+    "<b>4. Контент, який може дати охоплення</b>",
+    ...(topTopics.length
+      ? topTopics.map((item) => `${item.index}. ${escapeHtml(item.topic.title)} · power ${topicPowerScore(item.topic)}\n   ${escapeHtml(compact(item.topic.hook || item.topic.hooks?.[0]))}`)
+      : ["Немає тем дня. Згенеруй їх у CRM або дочекайся 9:00."])
+  ];
+
+  if (appUrl) {
+    lines.push("", `<a href="${appUrl}">Відкрити CRM</a>`);
+  }
+
+  return lines.join("\n");
+}
+
 function buildFollowups(leads: LeadRow[], today: string) {
   const activeLeads = leads.filter((lead) => !isLeadClosed(lead));
   const overdue = activeLeads.filter((lead) => lead.follow_up_date && lead.follow_up_date < today);
@@ -485,6 +698,61 @@ export async function POST(request: Request) {
         }
         return Response.json({ ok: true });
       }
+      if (action === "ctrl") {
+        await answerCallback(callback.id, "Відкриваю");
+        if (id === "find") {
+          await sendTelegram(callback.message.chat.id, "Обери нішу для пошуку лідів:", leadFinderNicheKeyboard());
+          return Response.json({ ok: true });
+        }
+        if (id === "candidates") {
+          const candidates = await listCandidates(10);
+          await sendCandidateCards(callback.message.chat.id, candidates);
+          return Response.json({ ok: true });
+        }
+
+        const today = dateKey();
+        const [leads, tasks, topicRuns] = await Promise.all([
+          getLeadsForBot(),
+          supabaseGet<TaskRow[]>("tasks", "select=id,title,type,related_lead_id,due_date,status&order=due_date.asc"),
+          readTopicRuns()
+        ]);
+        const run = latestTopicRun(topicRuns);
+        const activeLeads = leads.filter((lead) => !isLeadClosed(lead));
+
+        if (id === "topics") {
+          const items = topTopicItems(run);
+          await sendTelegram(callback.message.chat.id, buildTopicsMessage(run), items.length ? topicKeyboard(items) : undefined);
+          return Response.json({ ok: true });
+        }
+        if (id === "calls") {
+          await sendTelegram(callback.message.chat.id, buildCalls(leads, tasks, today));
+          return Response.json({ ok: true });
+        }
+        if (id === "hot") {
+          const outreach = activeLeads
+            .filter((lead) => lead.priority === "Hot" || lead.priority === "High" || ["Новий", "Контакт", "Без відповіді", "КП", "На паузі"].includes(visibleLeadStatus(lead.status)))
+            .sort((a, b) => leadScore(b, today) - leadScore(a, today));
+          await sendTelegram(callback.message.chat.id, buildLeadList("Кому писати зараз", outreach, today));
+          return Response.json({ ok: true });
+        }
+        await sendTelegram(callback.message.chat.id, buildDayPlan(leads, tasks, today, run), controlKeyboard());
+        return Response.json({ ok: true });
+      }
+      if (action === "topic") {
+        const status = topicStatusByCode[extra || ""];
+        const index = Number(id);
+        if (!status || !Number.isFinite(index)) {
+          await answerCallback(callback.id, "Не зрозуміла статус теми");
+          return Response.json({ ok: true });
+        }
+        const topic = await updateLatestTopicStatus(index, status);
+        await answerCallback(callback.id, topic ? status : "Тему не знайдено");
+        await sendTelegram(
+          callback.message.chat.id,
+          topic ? `✅ Тема ${index}: <b>${escapeHtml(topic.title)}</b>\nСтатус: <b>${escapeHtml(status)}</b>` : "Не знайшла цю тему в останньому списку."
+        );
+        return Response.json({ ok: true });
+      }
       if (action === "candidate_add" || action === "candidate_hot") {
         const candidate = await addCandidateToCrm(id, action === "candidate_hot" ? "Hot" : "Medium");
         await answerCallback(callback.id, action === "candidate_hot" ? "Додано як Hot" : "Додано в CRM");
@@ -539,19 +807,52 @@ export async function POST(request: Request) {
       return Response.json({ ok: true });
     }
 
-    const knownActions = ["/start", "/status", "/today", "/hot", "/followups", "/kpi", "⚡ Що робити зараз", "📊 Статус зараз", "📞 Дзвінки", "🔥 Кому писати", "⏰ Прострочені", "💶 Pipeline"];
+    if (lowerText.startsWith("/metrics ")) {
+      const [, indexValue, viewsValue, commentsValue, savesValue] = text.split(/\s+/);
+      const index = Number(indexValue);
+      const views = Number(viewsValue);
+      const comments = Number(commentsValue);
+      const saves = Number(savesValue);
+      if (![index, views, comments, saves].every(Number.isFinite)) {
+        await sendTelegram(chatId, "Формат: <code>/metrics 1 12000 84 37</code>\n1 — номер теми, далі перегляди, коментарі, збереження.");
+        return Response.json({ ok: true });
+      }
+      const topic = await updateLatestTopicMetrics(index, views, comments, saves);
+      await sendTelegram(
+        chatId,
+        topic
+          ? `✅ Метрики збережені: <b>${escapeHtml(topic.title)}</b>\nПерегляди: ${topic.views}\nКоментарі: ${topic.comments}\nЗбереження: ${topic.saves}`
+          : "Не знайшла тему з таким номером в останньому списку."
+      );
+      return Response.json({ ok: true });
+    }
+
+    const knownActions = ["/start", "/status", "/today", "/topics", "/hot", "/followups", "/kpi", "✅ План дня", "🎬 Теми дня", "⚡ Що робити зараз", "📊 Статус зараз", "📞 Дзвінки", "🔥 Кому писати", "⏰ Прострочені", "💶 Pipeline"];
     if (!knownActions.includes(text)) {
-      await sendTelegram(chatId, "Натисни <b>🔎 Пошук лідів</b>, обери нішу і країну. Або натисни <b>/candidates</b>, <b>⚡ Що робити зараз</b>, <b>📞 Дзвінки</b>, <b>🔥 Кому писати</b>.");
+      await sendTelegram(chatId, "Натисни <b>✅ План дня</b>, <b>🎬 Теми дня</b>, <b>🔎 Пошук лідів</b>, <b>📞 Дзвінки</b> або <b>🔥 Кому писати</b>.");
       return Response.json({ ok: true });
     }
 
     const today = dateKey();
-    const [leads, tasks] = await Promise.all([
+    const [leads, tasks, topicRuns] = await Promise.all([
       getLeadsForBot(),
-      supabaseGet<TaskRow[]>("tasks", "select=id,title,type,related_lead_id,due_date,status&order=due_date.asc")
+      supabaseGet<TaskRow[]>("tasks", "select=id,title,type,related_lead_id,due_date,status&order=due_date.asc"),
+      readTopicRuns()
     ]);
+    const run = latestTopicRun(topicRuns);
 
     const activeLeads = leads.filter((lead) => !["Виграно", "Закриті"].includes(visibleLeadStatus(lead.status)));
+    if (text === "🎬 Теми дня" || text === "/topics") {
+      const items = topTopicItems(run);
+      await sendTelegram(chatId, buildTopicsMessage(run), items.length ? topicKeyboard(items) : undefined);
+      return Response.json({ ok: true });
+    }
+
+    if (text === "✅ План дня" || text === "⚡ Що робити зараз" || text === "/today" || text === "/start") {
+      await sendTelegram(chatId, buildDayPlan(leads, tasks, today, run), controlKeyboard());
+      return Response.json({ ok: true });
+    }
+
     if (text === "/hot" || text === "🔥 Кому писати") {
       const outreach = activeLeads
         .filter((lead) => lead.priority === "Hot" || lead.priority === "High" || ["Новий", "Контакт", "Без відповіді", "КП", "На паузі"].includes(visibleLeadStatus(lead.status)))
@@ -588,7 +889,7 @@ export async function POST(request: Request) {
       return Response.json({ ok: true });
     }
 
-    await sendTelegram(chatId, buildStatus(leads, tasks, today));
+    await sendTelegram(chatId, buildStatus(leads, tasks, today), controlKeyboard());
     return Response.json({ ok: true });
   } catch (error) {
     console.error("Telegram webhook failed", error);

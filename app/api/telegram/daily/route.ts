@@ -142,8 +142,9 @@ async function sendTelegram(text: string) {
       parse_mode: "HTML",
       reply_markup: {
         keyboard: [
-          [{ text: "⚡ Що робити зараз" }, { text: "🔎 /find30" }],
+          [{ text: "✅ План дня" }, { text: "🎬 Теми дня" }],
           [{ text: "📞 Дзвінки" }, { text: "🔥 Кому писати" }],
+          [{ text: "🔎 Пошук лідів" }, { text: "⚡ Що робити зараз" }],
           [{ text: "⏰ Прострочені" }, { text: "💶 Pipeline" }, { text: "📋 /candidates" }],
           [{ text: "Відкрити CRM" }]
         ],
