@@ -174,7 +174,10 @@ function parseJsonObject(text: string) {
   return JSON.parse(clean.slice(start, end + 1)) as { summary?: string; topics?: DailyContentTopic[] };
 }
 
-async function analyzeWithOpenAI(sources: Array<{ title: string; url: string; snippet: string }>) {
+async function analyzeWithOpenAI(
+  sources: Array<{ title: string; url: string; snippet: string }>,
+  previousTitles: string[]
+) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
 
@@ -189,12 +192,16 @@ async function analyzeWithOpenAI(sources: Array<{ title: string; url: string; sn
     "Фокус: актуальні новини, скандали, болі українців, робота, житло, документи, медицина, бізнес, коментарі людей, соціальна напруга.",
     "Кожна тема має бути не сухою новиною, а TikTok-ідеєю з конфліктом, емоцією, коментарями і чіткою позицією Hugo.",
     "Позиція Hugo: показую не просто подію, а як це впливає на українців, бізнес і людей за кордоном.",
+    "Не повторюй теми з попередніх запусків. Якщо новина та сама, знайди інший свіжий кут, біль або конфлікт.",
     "Не генеруй довгий сценарій і багато коментарів: дай ядро теми, а система сама добудує production-пакет.",
     "Оціни кожну тему числами 0-10: virality_score, conflict_score, comment_score, emotion_score, ease_score.",
     "production_status для топ-3 тем постав 'Зняти першим', для інших 'Ідея'.",
     "Не вигадуй фактів. Якщо тема базується на тренді, формулюй як гіпотезу/кут, а не як факт.",
     "Поверни тільки JSON без markdown.",
     'Формат: {"summary":"короткий підсумок дня","topics":[{"title":"","angle":"","pain":"","hook":"","format":"","talking_points":["","",""],"caption":"","cta":"","conflict":"","series":"","virality_score":0,"conflict_score":0,"comment_score":0,"emotion_score":0,"ease_score":0,"production_status":"Ідея","sources":[{"title":"","url":"","snippet":""}]}]}',
+    "",
+    "Попередні теми, які НЕ можна повторювати:",
+    previousTitles.slice(0, 40).map((title, index) => `${index + 1}. ${title}`).join("\n") || "немає",
     "",
     "Джерела:",
     sourceText
@@ -414,19 +421,30 @@ function topicPowerScore(topic: DailyContentTopic) {
   );
 }
 
-export async function generateDailyTopics(options: { sendTelegram?: boolean } = {}) {
+export async function generateDailyTopics(options: { sendTelegram?: boolean; requireReady?: boolean } = {}) {
   const today = dateKey();
+  const existing = await readTopicRuns();
+  const previousTitles = existing.flatMap((run) => run.topics?.map((topic) => topic.title) ?? []);
   const sources = await fetchSerperSources();
   let status: DailyTopicRun["status"] = "Ready";
   let analysis = fallbackTopics(sources);
+  let openAiError = "";
 
   try {
-    const openAiAnalysis = await analyzeWithOpenAI(sources);
+    const openAiAnalysis = await analyzeWithOpenAI(sources, previousTitles);
     if (openAiAnalysis) analysis = openAiAnalysis;
-    else status = "Fallback";
+    else {
+      status = "Fallback";
+      openAiError = "OPENAI_API_KEY не налаштований або порожній";
+    }
   } catch (error) {
     console.error("Daily topic OpenAI analysis failed", error);
     status = "Fallback";
+    openAiError = error instanceof Error ? error.message : "OpenAI не повернув теми";
+  }
+
+  if (options.requireReady && status !== "Ready") {
+    throw new Error(`OpenAI не згенерував нові теми: ${openAiError || "невідома причина"}`);
   }
 
   const run: DailyTopicRun = {
@@ -441,7 +459,6 @@ export async function generateDailyTopics(options: { sendTelegram?: boolean } = 
     created_at: new Date().toISOString()
   };
 
-  const existing = await readTopicRuns();
   const withoutToday = existing.filter((item) => item.date !== today);
   await writeTopicRuns([run, ...withoutToday]);
   if (options.sendTelegram) await sendTelegramTopics(run);

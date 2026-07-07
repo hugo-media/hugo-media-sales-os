@@ -1198,9 +1198,9 @@ function isMissingSupabaseColumn(error: unknown) {
 
 async function fetchSupabaseSnapshot(
   connection: SupabaseConnection
-): Promise<{ snapshot: CrmSnapshot | null; error?: string }> {
+): Promise<{ snapshot: CrmSnapshot | null; error?: string; warning?: string }> {
   try {
-    const [leads, tasks, contentItems, templates, history, settingsRows] = await Promise.all([
+    const [leadsResult, tasksResult, contentItemsResult, templatesResult, historyResult, settingsRowsResult] = await Promise.allSettled([
       supabaseRequest<LeadRow[]>(connection, "leads", "select=*&order=created_at.desc"),
       supabaseRequest<Task[]>(connection, "tasks", "select=*&order=due_date.asc"),
       supabaseRequest<ContentRow[]>(connection, "content_items", "select=*&order=date.asc"),
@@ -1209,6 +1209,22 @@ async function fetchSupabaseSnapshot(
       supabaseRequest<SettingRow[]>(connection, "settings", "select=key,value&key=eq.app")
     ]);
 
+    if (leadsResult.status === "rejected") throw leadsResult.reason;
+    if (settingsRowsResult.status === "rejected") throw settingsRowsResult.reason;
+
+    const warnings = [
+      tasksResult.status === "rejected" ? `tasks: ${String(tasksResult.reason)}` : "",
+      contentItemsResult.status === "rejected" ? `content_items: ${String(contentItemsResult.reason)}` : "",
+      templatesResult.status === "rejected" ? `templates: ${String(templatesResult.reason)}` : "",
+      historyResult.status === "rejected" ? `status_history: ${String(historyResult.reason)}` : ""
+    ].filter(Boolean);
+
+    const leads = leadsResult.value;
+    const tasks = tasksResult.status === "fulfilled" ? tasksResult.value : [];
+    const contentItems = contentItemsResult.status === "fulfilled" ? contentItemsResult.value : [];
+    const templates = templatesResult.status === "fulfilled" ? templatesResult.value : [];
+    const history = historyResult.status === "fulfilled" ? historyResult.value : [];
+    const settingsRows = settingsRowsResult.value;
     const remoteSettings = settingsRows[0]?.value;
     return {
       snapshot: {
@@ -1218,7 +1234,8 @@ async function fetchSupabaseSnapshot(
         templates,
         history,
         settings: mergeSettings(remoteSettings)
-      }
+      },
+      warning: warnings.length ? warnings.join("; ") : undefined
     };
   } catch (error) {
     return {
@@ -1457,7 +1474,7 @@ export default function SalesOs() {
       if (supabase) {
         setSyncStatus("loading");
         setSyncMessage("Завантажую дані з Supabase...");
-        const [{ snapshot: remoteSnapshot, error }, remoteCandidates, remoteTopicRuns] = await Promise.all([
+        const [{ snapshot: remoteSnapshot, error, warning }, remoteCandidates, remoteTopicRuns] = await Promise.all([
           fetchSupabaseSnapshot(supabase),
           fetchLeadCandidates(supabase),
           fetchDailyTopicRuns(supabase)
@@ -1470,9 +1487,9 @@ export default function SalesOs() {
           applySnapshot(remoteSnapshot);
           writeLocalSnapshot(remoteSnapshot);
           setDataSource("supabase");
-          setDataSourceNote("");
+          setDataSourceNote(warning ? `Supabase підключений. Повільно завантажилось: ${warning}` : "");
           setSyncStatus("saved");
-          setSyncMessage("База підключена");
+          setSyncMessage(warning ? "База підключена, частина таблиць повільна" : "База підключена");
         } else {
           if (localSnapshot) {
             applySnapshot(localSnapshot);
@@ -2073,7 +2090,11 @@ export default function SalesOs() {
     if (!canWriteToDatabase()) return;
     setIsGeneratingTopics(true);
     try {
-      const response = await fetch("/api/content/daily-topics?manual=1&send=telegram", { cache: "no-store" });
+      const response = await fetch(`/api/content/daily-topics?manual=1&send=telegram&t=${Date.now()}`, {
+        method: "POST",
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache" }
+      });
       const data = await response.json() as { ok?: boolean; run?: DailyTopicRun; error?: string };
       if (!response.ok || !data.ok || !data.run) throw new Error(data.error || "Не вдалося згенерувати теми");
       const normalizedRun = { ...data.run, topics: data.run.topics.map(normalizeDailyTopic) } as DailyTopicRun;
@@ -4354,7 +4375,7 @@ function DailyTopicsPage({
   const firstTopics = rankedTopics.slice(0, 3);
 
   useEffect(() => {
-    if (!selectedRunId && runs[0]?.id) setSelectedRunId(runs[0].id);
+    if (runs[0]?.id && !runs.some((run) => run.id === selectedRunId)) setSelectedRunId(runs[0].id);
   }, [runs, selectedRunId]);
 
   async function copyTopic(topic: DailyContentTopic) {
