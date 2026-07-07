@@ -47,7 +47,7 @@ const topicSettingsKey = "daily_tiktok_topics";
 const defaultAudience = "українці в Польщі та Європі";
 const defaultRegion = "Poland and Europe";
 const serperTimeoutMs = 8_000;
-const openAiTimeoutMs = 38_000;
+const openAiTimeoutMs = 85_000;
 const topicFocusConfigs: Record<string, { label: string; instruction: string; queries: string[] }> = {
   all: {
     label: "Усе важливе",
@@ -283,7 +283,7 @@ async function analyzeWithOpenAI(
   const focus = topicFocus(focusKey);
 
   const sourceText = sources
-    .slice(0, 10)
+    .slice(0, 8)
     .map((source, index) => `${index + 1}. ${source.title}\n${source.snippet}\n${source.url}`)
     .join("\n\n");
 
@@ -297,7 +297,7 @@ async function analyzeWithOpenAI(
     "Позиція Hugo: показую не просто подію, а як це впливає на українців, бізнес і людей за кордоном.",
     "Не повторюй теми з попередніх запусків. Якщо новина та сама, знайди інший свіжий кут, біль або конфлікт.",
     "Нові теми став у production_status 'Ідея'. Тільки якщо тема дуже сильна, постав 'Зняти першим'. Не став 'Підтверджено', 'Знято' або 'Архів' під час генерації.",
-    "Не генеруй довгий сценарій і багато коментарів: дай ядро теми, а система сама добудує production-пакет.",
+    "Пиши коротко і професійно. Не генеруй довгий сценарій і багато коментарів: дай ядро теми, а система сама добудує production-пакет.",
     "Оціни кожну тему числами 0-10: virality_score, conflict_score, comment_score, emotion_score, ease_score.",
     "production_status для топ-3 тем постав 'Зняти першим', для інших 'Ідея'.",
     "Не вигадуй фактів. Якщо тема базується на тренді, формулюй як гіпотезу/кут, а не як факт.",
@@ -331,7 +331,7 @@ async function analyzeWithOpenAI(
       ],
       response_format: { type: "json_object" },
       temperature: 0.35,
-      max_tokens: 2600
+      max_tokens: 1900
     }),
     cache: "no-store"
   }, openAiTimeoutMs);
@@ -554,7 +554,7 @@ export async function generateDailyTopics(options: { sendTelegram?: boolean; req
       openAiError = "OPENAI_API_KEY не налаштований або порожній";
     }
   } catch (error) {
-    console.error("Daily topic OpenAI analysis failed", error);
+    console.warn("Daily topic OpenAI analysis failed", error);
     status = "Fallback";
     openAiError = error instanceof Error ? error.message : "OpenAI не повернув теми";
   }
