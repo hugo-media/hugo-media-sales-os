@@ -72,17 +72,12 @@ const openAiTopicResponseFormat = {
               "pain",
               "hook",
               "talking_points",
-              "caption",
-              "cta",
-              "conflict",
-              "series",
               "virality_score",
               "conflict_score",
               "comment_score",
               "emotion_score",
               "ease_score",
-              "production_status",
-              "sources"
+              "production_status"
             ],
             properties: {
               title: { type: "string" },
@@ -95,30 +90,12 @@ const openAiTopicResponseFormat = {
                 maxItems: 4,
                 items: { type: "string" }
               },
-              caption: { type: "string" },
-              cta: { type: "string" },
-              conflict: { type: "string" },
-              series: { type: "string" },
               virality_score: { type: "number" },
               conflict_score: { type: "number" },
               comment_score: { type: "number" },
               emotion_score: { type: "number" },
               ease_score: { type: "number" },
-              production_status: { type: "string", enum: ["Ідея", "Зняти першим"] },
-              sources: {
-                type: "array",
-                maxItems: 2,
-                items: {
-                  type: "object",
-                  additionalProperties: false,
-                  required: ["title", "url", "snippet"],
-                  properties: {
-                    title: { type: "string" },
-                    url: { type: "string" },
-                    snippet: { type: "string" }
-                  }
-                }
-              }
+              production_status: { type: "string", enum: ["Ідея", "Зняти першим"] }
             }
           }
         }
@@ -379,8 +356,8 @@ async function analyzeWithOpenAI(
     "Оціни кожну тему числами 0-10: virality_score, conflict_score, comment_score, emotion_score, ease_score.",
     "production_status для топ-3 тем постав 'Зняти першим', для інших 'Ідея'.",
     "Не вигадуй фактів. Якщо тема базується на тренді, формулюй як гіпотезу/кут, а не як факт.",
-    "Поверни тільки JSON за схемою. Тексти короткі: title до 90 символів, angle/pain/hook до 160 символів, caption до 140 символів.",
-    "Не додавай сценарії, довгі пояснення, markdown або зайві поля.",
+    "Поверни тільки JSON за схемою. Тексти короткі: title до 80 символів, angle/pain/hook до 130 символів.",
+    "Не додавай сценарії, caption, cta, sources, довгі пояснення, markdown або зайві поля.",
     "",
     "Попередні теми, які НЕ можна повторювати:",
     previousTitles.slice(0, 40).map((title, index) => `${index + 1}. ${title}`).join("\n") || "немає",
@@ -409,7 +386,7 @@ async function analyzeWithOpenAI(
       ],
       response_format: openAiTopicResponseFormat,
       temperature: 0.35,
-      max_tokens: 3200
+      max_tokens: 2600
     }),
     cache: "no-store"
   }, openAiTimeoutMs);
