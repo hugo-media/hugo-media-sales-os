@@ -1412,6 +1412,8 @@ export default function SalesOs() {
   const [dailyTopicRuns, setDailyTopicRuns] = useState<DailyTopicRun[]>([]);
   const [isGeneratingTopics, setIsGeneratingTopics] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
+  const skippedInitialCandidateSync = useRef(false);
+  const skippedInitialTopicSync = useRef(false);
   const [dataSource, setDataSource] = useState<"local" | "supabase">(supabase ? "supabase" : "local");
   const [dataSourceNote, setDataSourceNote] = useState("");
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(supabase ? "loading" : "local");
@@ -1545,6 +1547,10 @@ export default function SalesOs() {
 
   useEffect(() => {
     if (!isHydrated || !supabase || dataSource !== "supabase") return;
+    if (!skippedInitialCandidateSync.current) {
+      skippedInitialCandidateSync.current = true;
+      return;
+    }
     setSyncStatus("saving");
     setSyncMessage("Зберігаю кандидатів у Supabase...");
     const timer = window.setTimeout(() => {
@@ -1566,6 +1572,10 @@ export default function SalesOs() {
 
   useEffect(() => {
     if (!isHydrated || !supabase || dataSource !== "supabase") return;
+    if (!skippedInitialTopicSync.current) {
+      skippedInitialTopicSync.current = true;
+      return;
+    }
     setSyncStatus("saving");
     setSyncMessage("Зберігаю теми дня у Supabase...");
     const timer = window.setTimeout(() => {
