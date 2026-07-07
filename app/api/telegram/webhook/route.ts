@@ -98,6 +98,7 @@ const leadFinderCountries = [
 const topicSettingsKey = "daily_tiktok_topics";
 const topicStatusByCode: Record<string, DailyContentTopic["production_status"]> = {
   first: "Зняти першим",
+  confirm: "Підтверджено",
   shot: "Знято",
   edited: "Змонтовано",
   published: "Опубліковано",
@@ -262,6 +263,7 @@ function latestTopicRun(runs: DailyTopicRun[]) {
 
 function topTopicItems(run?: DailyTopicRun) {
   return (run?.topics ?? [])
+    .filter((topic) => topic.production_status !== "Архів")
     .map((topic, index) => ({ topic, index: index + 1 }))
     .sort((a, b) => topicPowerScore(b.topic) - topicPowerScore(a.topic))
     .slice(0, 5);
@@ -271,12 +273,15 @@ function topicKeyboard(items: Array<{ index: number; topic: DailyContentTopic }>
   return {
     inline_keyboard: items.slice(0, 5).flatMap((item) => [
       [
+        { text: `${item.index}. Підтвердити`, callback_data: `topic:${item.index}:confirm` },
+        { text: `${item.index}. Архів`, callback_data: `topic:${item.index}:archive` }
+      ],
+      [
         { text: `${item.index}. Зняти`, callback_data: `topic:${item.index}:shot` },
         { text: `${item.index}. Змонтовано`, callback_data: `topic:${item.index}:edited` }
       ],
       [
-        { text: `${item.index}. Опубліковано`, callback_data: `topic:${item.index}:published` },
-        { text: `${item.index}. Архів`, callback_data: `topic:${item.index}:archive` }
+        { text: `${item.index}. Опубліковано`, callback_data: `topic:${item.index}:published` }
       ]
     ])
   };

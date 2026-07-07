@@ -16,7 +16,8 @@ async function handleGenerate(request: Request) {
 
   try {
     const sendTelegram = url.searchParams.get("send") === "telegram";
-    const run = await generateDailyTopics({ sendTelegram, requireReady: isManual });
+    const focusKey = url.searchParams.get("focus") || "all";
+    const run = await generateDailyTopics({ sendTelegram, requireReady: isManual, focusKey });
     return Response.json(
       { ok: true, run },
       { headers: { "Cache-Control": "no-store, max-age=0" } }

@@ -20,7 +20,7 @@ export type DailyContentTopic = {
   comment_score: number;
   emotion_score: number;
   ease_score: number;
-  production_status: "Ідея" | "Зняти першим" | "Знято" | "Змонтовано" | "Опубліковано" | "Архів";
+  production_status: "Ідея" | "Зняти першим" | "Підтверджено" | "Знято" | "Змонтовано" | "Опубліковано" | "Архів";
   views: number;
   comments: number;
   saves: number;
@@ -32,6 +32,8 @@ export type DailyTopicRun = {
   date: string;
   audience: string;
   region: string;
+  focus_key?: string;
+  focus_label?: string;
   status: "Ready" | "Fallback" | "Error";
   summary: string;
   topics: DailyContentTopic[];
@@ -44,6 +46,96 @@ type SettingsRow<T> = { key: string; value: T };
 const topicSettingsKey = "daily_tiktok_topics";
 const defaultAudience = "українці в Польщі та Європі";
 const defaultRegion = "Poland and Europe";
+const topicFocusConfigs: Record<string, { label: string; instruction: string; queries: string[] }> = {
+  all: {
+    label: "Усе важливе",
+    instruction: "Знайди найсильніші теми дня: новини, болі, конфлікти, лайфхаки, коментарі людей і теми, які можуть набрати перегляди.",
+    queries: [
+      "Українці в Польщі актуальні проблеми коментарі скандал",
+      "Ukraińcy w Polsce komentarze problem skandal praca mieszkanie",
+      "українці в Європі болі новини коментарі біженці",
+      "Polska Ukraina ukraińcy praca mieszkanie świadczenia komentarze",
+      "українці Польща TikTok тема відео робота житло документи"
+    ]
+  },
+  legalization: {
+    label: "Легалізація",
+    instruction: "Фокус тільки на документах, легалізації, картах побиту, візах, депортації, чергах, дедлайнах і типових помилках українців.",
+    queries: [
+      "українці Польща легалізація карта побиту проблеми 2026",
+      "karta pobytu Ukraińcy problem dokumenty komentarze",
+      "українці Польща документи дедлайн помилки легалізація",
+      "legalizacja pobytu Ukraińcy Polska news",
+      "українці Європа легалізація документи статус захисту"
+    ]
+  },
+  politics: {
+    label: "Політика",
+    instruction: "Фокус на політиці, рішеннях влади, польсько-українських конфліктах, настроях суспільства і тому, як це впливає на українців.",
+    queries: [
+      "Польща Україна політика українці коментарі скандал",
+      "Polska Ukraina polityka Ukraińcy komentarze skandal",
+      "українці в Польщі політичний конфлікт новини",
+      "антиукраїнські настрої Польща українці",
+      "Polska Ukraińcy wybory świadczenia mieszkanie praca komentarze"
+    ]
+  },
+  work: {
+    label: "Робота",
+    instruction: "Фокус на роботі, зарплатах, обмані роботодавців, працевлаштуванні, документах для роботи і болях працівників.",
+    queries: [
+      "українці Польща робота зарплата обман коментарі",
+      "Ukraińcy w Polsce praca zarobki problem komentarze",
+      "українці Польща працевлаштування проблеми 2026",
+      "робота в Польщі українці найчастіші питання",
+      "Ukraińcy Polska praca agencja oszustwo"
+    ]
+  },
+  conflicts: {
+    label: "Конфлікти і проблеми",
+    instruction: "Фокус на гострих конфліктах, скандалах, дискримінації, хейті, житлі, роботі, побутових ситуаціях і темах, які викликають коментарі.",
+    queries: [
+      "українці Польща конфлікт скандал коментарі",
+      "Ukraińcy w Polsce konflikt skandal komentarze",
+      "українці Польща дискримінація хейт проблеми",
+      "Polacy Ukraińcy konflikt komentarze",
+      "українці в Європі конфлікт житло робота"
+    ]
+  },
+  lifehacks: {
+    label: "Лайфхаки в Польщі",
+    instruction: "Фокус на практичних лайфхаках: документи, житло, медицина, школа, робота, податки, сервіси, що реально полегшують життя українців.",
+    queries: [
+      "українці Польща лайфхаки документи житло медицина",
+      "jak Ukraińcy w Polsce poradnik dokumenty praca mieszkanie",
+      "українці Польща що треба знати 2026",
+      "корисні сервіси для українців у Польщі",
+      "українці Польща найчастіші питання відповіді"
+    ]
+  },
+  pain_analysis: {
+    label: "Болі українців",
+    instruction: "Зроби аналіз найчастіших болів і запитів українців у Польщі. Теми мають відповідати на питання, які люди реально задають.",
+    queries: [
+      "українці в Польщі найчастіші питання проблеми",
+      "українці Польща болі коментарі форум",
+      "Ukraińcy w Polsce pytania problemy forum komentarze",
+      "українці Польща документи робота житло медицина питання",
+      "українці Польща що робити якщо"
+    ]
+  },
+  viral_creators: {
+    label: "Віральні блогери",
+    instruction: "Проаналізуй, які теми у українських блогерів у Польщі потенційно залітають: конфлікти, особисті історії, поради, робота, документи, коментарі.",
+    queries: [
+      "site:tiktok.com українці в Польщі робота документи",
+      "site:tiktok.com українка в Польщі проблеми",
+      "site:tiktok.com українці Польща лайфхаки",
+      "українські блогери в Польщі TikTok теми",
+      "TikTok українці в Польщі відео коментарі"
+    ]
+  }
+};
 
 function newId(prefix = "topic") {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -108,21 +200,16 @@ async function writeTopicRuns(runs: DailyTopicRun[]) {
   });
 }
 
-function topicQueries() {
-  return [
-    "Українці в Польщі актуальні проблеми коментарі скандал",
-    "Ukraińcy w Polsce komentarze problem skandal praca mieszkanie",
-    "українці в Європі болі новини коментарі біженці",
-    "Polska Ukraina ukraińcy praca mieszkanie świadczenia komentarze",
-    "українці Польща TikTok тема відео робота житло документи"
-  ];
+function topicFocus(focusKey?: string) {
+  return topicFocusConfigs[focusKey || "all"] ?? topicFocusConfigs.all;
 }
 
-async function fetchSerperSources() {
+async function fetchSerperSources(focusKey?: string) {
   const apiKey = process.env.SERPER_API_KEY;
   if (!apiKey) return [];
+  const focus = topicFocus(focusKey);
 
-  const batches = await Promise.all(topicQueries().map(async (query) => {
+  const batches = await Promise.all(focus.queries.map(async (query) => {
     const response = await fetch("https://google.serper.dev/search", {
       method: "POST",
       headers: {
@@ -176,10 +263,12 @@ function parseJsonObject(text: string) {
 
 async function analyzeWithOpenAI(
   sources: Array<{ title: string; url: string; snippet: string }>,
-  previousTitles: string[]
+  previousTitles: string[],
+  focusKey?: string
 ) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
+  const focus = topicFocus(focusKey);
 
   const sourceText = sources
     .slice(0, 10)
@@ -189,10 +278,13 @@ async function analyzeWithOpenAI(
   const prompt = [
     "Ти редактор TikTok для Hugo Media. Потрібно щоранку знайти гарячі теми для українців у Польщі та Європі.",
     "На основі джерел сформуй рівно 10 тем для коротких відео.",
+    `Фокус генерації: ${focus.label}.`,
+    `Інструкція фокусу: ${focus.instruction}`,
     "Фокус: актуальні новини, скандали, болі українців, робота, житло, документи, медицина, бізнес, коментарі людей, соціальна напруга.",
     "Кожна тема має бути не сухою новиною, а TikTok-ідеєю з конфліктом, емоцією, коментарями і чіткою позицією Hugo.",
     "Позиція Hugo: показую не просто подію, а як це впливає на українців, бізнес і людей за кордоном.",
     "Не повторюй теми з попередніх запусків. Якщо новина та сама, знайди інший свіжий кут, біль або конфлікт.",
+    "Нові теми став у production_status 'Ідея'. Тільки якщо тема дуже сильна, постав 'Зняти першим'. Не став 'Підтверджено', 'Знято' або 'Архів' під час генерації.",
     "Не генеруй довгий сценарій і багато коментарів: дай ядро теми, а система сама добудує production-пакет.",
     "Оціни кожну тему числами 0-10: virality_score, conflict_score, comment_score, emotion_score, ease_score.",
     "production_status для топ-3 тем постав 'Зняти першим', для інших 'Ідея'.",
@@ -421,17 +513,18 @@ function topicPowerScore(topic: DailyContentTopic) {
   );
 }
 
-export async function generateDailyTopics(options: { sendTelegram?: boolean; requireReady?: boolean } = {}) {
+export async function generateDailyTopics(options: { sendTelegram?: boolean; requireReady?: boolean; focusKey?: string } = {}) {
   const today = dateKey();
   const existing = await readTopicRuns();
   const previousTitles = existing.flatMap((run) => run.topics?.map((topic) => topic.title) ?? []);
-  const sources = await fetchSerperSources();
+  const focus = topicFocus(options.focusKey);
+  const sources = await fetchSerperSources(options.focusKey);
   let status: DailyTopicRun["status"] = "Ready";
   let analysis = fallbackTopics(sources);
   let openAiError = "";
 
   try {
-    const openAiAnalysis = await analyzeWithOpenAI(sources, previousTitles);
+    const openAiAnalysis = await analyzeWithOpenAI(sources, previousTitles, options.focusKey);
     if (openAiAnalysis) analysis = openAiAnalysis;
     else {
       status = "Fallback";
@@ -452,6 +545,8 @@ export async function generateDailyTopics(options: { sendTelegram?: boolean; req
     date: today,
     audience: defaultAudience,
     region: defaultRegion,
+    focus_key: options.focusKey || "all",
+    focus_label: focus.label,
     status,
     summary: analysis.summary,
     topics: normalizeTopics(analysis.topics, sources),
@@ -459,8 +554,7 @@ export async function generateDailyTopics(options: { sendTelegram?: boolean; req
     created_at: new Date().toISOString()
   };
 
-  const withoutToday = existing.filter((item) => item.date !== today);
-  await writeTopicRuns([run, ...withoutToday]);
+  await writeTopicRuns([run, ...existing]);
   if (options.sendTelegram) await sendTelegramTopics(run);
   return run;
 }

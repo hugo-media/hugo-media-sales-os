@@ -128,7 +128,7 @@ type DailyContentTopic = {
   comment_score: number;
   emotion_score: number;
   ease_score: number;
-  production_status: "Ідея" | "Зняти першим" | "Знято" | "Змонтовано" | "Опубліковано" | "Архів";
+  production_status: "Ідея" | "Зняти першим" | "Підтверджено" | "Знято" | "Змонтовано" | "Опубліковано" | "Архів";
   views: number;
   comments: number;
   saves: number;
@@ -140,6 +140,8 @@ type DailyTopicRun = {
   date: string;
   audience: string;
   region: string;
+  focus_key?: string;
+  focus_label?: string;
   status: "Ready" | "Fallback" | "Error";
   summary: string;
   topics: DailyContentTopic[];
@@ -322,6 +324,19 @@ const templateCategories = [
   "Post",
   "Comment"
 ];
+
+const dailyTopicFocusOptions = [
+  { key: "all", label: "Усе важливе" },
+  { key: "legalization", label: "Легалізація" },
+  { key: "politics", label: "Політика" },
+  { key: "work", label: "Робота" },
+  { key: "conflicts", label: "Конфлікти і проблеми" },
+  { key: "lifehacks", label: "Лайфхаки в Польщі" },
+  { key: "pain_analysis", label: "Болі українців" },
+  { key: "viral_creators", label: "Віральні блогери" }
+];
+const dailyTopicFocusLabels = dailyTopicFocusOptions.map((option) => option.label);
+const dailyTopicFocusKeyByLabel = Object.fromEntries(dailyTopicFocusOptions.map((option) => [option.label, option.key]));
 
 const defaultSettings: AppSettings = {
   business: {
@@ -2096,11 +2111,17 @@ export default function SalesOs() {
     setToast("Кандидата додано в ліди");
   }
 
-  async function generateTopicsNow() {
+  async function generateTopicsNow(focusKey = "all") {
     if (!canWriteToDatabase()) return;
     setIsGeneratingTopics(true);
     try {
-      const response = await fetch(`/api/content/daily-topics?manual=1&send=telegram&t=${Date.now()}`, {
+      const params = new URLSearchParams({
+        manual: "1",
+        send: "telegram",
+        focus: focusKey,
+        t: String(Date.now())
+      });
+      const response = await fetch(`/api/content/daily-topics?${params.toString()}`, {
         method: "POST",
         cache: "no-store",
         headers: { "Cache-Control": "no-cache" }
@@ -2108,7 +2129,7 @@ export default function SalesOs() {
       const data = await response.json() as { ok?: boolean; run?: DailyTopicRun; error?: string };
       if (!response.ok || !data.ok || !data.run) throw new Error(data.error || "Не вдалося згенерувати теми");
       const normalizedRun = { ...data.run, topics: data.run.topics.map(normalizeDailyTopic) } as DailyTopicRun;
-      setDailyTopicRuns((current) => [normalizedRun, ...current.filter((item) => item.date !== normalizedRun.date)].slice(0, 30));
+      setDailyTopicRuns((current) => [normalizedRun, ...current.filter((item) => item.id !== normalizedRun.id)].slice(0, 30));
       setToast("Теми дня згенеровано");
     } catch (error) {
       console.error("Manual topic generation failed", error);
@@ -4374,15 +4395,35 @@ function DailyTopicsPage({
 }: {
   runs: DailyTopicRun[];
   isGenerating: boolean;
-  onGenerate: () => void;
+  onGenerate: (focusKey?: string) => void;
   onPatchTopic: (runId: string, topicId: string, patch: Partial<DailyContentTopic>) => void;
   onCopied: () => void;
 }) {
   const [selectedRunId, setSelectedRunId] = useState(runs[0]?.id ?? "");
+  const [generationFocus, setGenerationFocus] = useState(dailyTopicFocusOptions[0].label);
+  const [activeTopicTab, setActiveTopicTab] = useState("На рішення");
   const latestRun = runs[0] ?? null;
   const selectedRun = runs.find((run) => run.id === selectedRunId) ?? latestRun;
   const rankedTopics = [...(selectedRun?.topics ?? [])].sort((a, b) => topicPowerScore(b) - topicPowerScore(a));
-  const firstTopics = rankedTopics.slice(0, 3);
+  const decisionTopics = rankedTopics.filter((topic) => topic.production_status === "Ідея" || topic.production_status === "Зняти першим");
+  const confirmedTopics = rankedTopics.filter((topic) => topic.production_status === "Підтверджено");
+  const shotTopics = rankedTopics.filter((topic) => ["Знято", "Змонтовано", "Опубліковано"].includes(topic.production_status));
+  const archivedTopics = rankedTopics.filter((topic) => topic.production_status === "Архів");
+  const topicTabs = [
+    { label: "На рішення", count: decisionTopics.length, topics: decisionTopics },
+    { label: "Підтверджені", count: confirmedTopics.length, topics: confirmedTopics },
+    { label: "Знято", count: shotTopics.length, topics: shotTopics },
+    { label: "Архів", count: archivedTopics.length, topics: archivedTopics },
+    { label: "Всі", count: rankedTopics.length, topics: rankedTopics }
+  ];
+  const visibleTopics = topicTabs.find((tab) => tab.label === activeTopicTab)?.topics ?? decisionTopics;
+  const firstTopics = rankedTopics.filter((topic) => topic.production_status !== "Архів").slice(0, 3);
+  const runOptions = runs.length
+    ? runs.map((run) => `${run.created_at ? new Date(run.created_at).toLocaleString("uk-UA", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : run.date} · ${run.focus_label || "Усе важливе"}`)
+    : ["Немає запусків"];
+  const selectedRunLabel = selectedRun
+    ? `${selectedRun.created_at ? new Date(selectedRun.created_at).toLocaleString("uk-UA", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : selectedRun.date} · ${selectedRun.focus_label || "Усе важливе"}`
+    : "Немає запусків";
 
   useEffect(() => {
     if (runs[0]?.id && !runs.some((run) => run.id === selectedRunId)) setSelectedRunId(runs[0].id);
@@ -4424,23 +4465,26 @@ function DailyTopicsPage({
 
   return (
     <div className="space-y-5">
-      <section className="grid gap-3 md:grid-cols-4">
-        <Card className="md:col-span-2">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <Card className="xl:col-span-2">
           <div className="text-sm text-slate-400">Сьогоднішній аналіз</div>
           <div className="mt-2 text-2xl font-black">{latestRun ? latestRun.date : "Ще немає"}</div>
           <div className="mt-1 text-sm text-slate-400">{latestRun ? latestRun.summary : "Натисни генерацію або дочекайся 09:00."}</div>
         </Card>
         <Card>
-          <div className="text-sm text-slate-400">Зняти першим</div>
-          <div className="mt-2 text-3xl font-black">{firstTopics.length}</div>
-          <div className="mt-1 text-xs text-slate-400">найсильніші теми</div>
+          <div className="text-sm text-slate-400">На рішення</div>
+          <div className="mt-2 text-3xl font-black">{latestRun ? decisionTopics.length : 0}</div>
+          <div className="mt-1 text-xs text-slate-400">підтвердити або відхилити</div>
         </Card>
         <Card>
-          <div className="text-sm text-slate-400">Середній power</div>
-          <div className="mt-2 text-3xl font-black">
-            {latestRun?.topics.length ? Math.round(latestRun.topics.reduce((sum, topic) => sum + topicPowerScore(topic), 0) / latestRun.topics.length) : 0}
-          </div>
-          <div className="mt-1 text-xs text-slate-400">віральність + коментарі</div>
+          <div className="text-sm text-slate-400">Підтверджено</div>
+          <div className="mt-2 text-3xl font-black">{latestRun ? confirmedTopics.length : 0}</div>
+          <div className="mt-1 text-xs text-slate-400">готові до зйомки</div>
+        </Card>
+        <Card>
+          <div className="text-sm text-slate-400">Знято / опубліковано</div>
+          <div className="mt-2 text-3xl font-black">{latestRun ? shotTopics.length : 0}</div>
+          <div className="mt-1 text-xs text-slate-400">окрема вкладка нижче</div>
         </Card>
       </section>
 
@@ -4450,17 +4494,31 @@ function DailyTopicsPage({
             <SectionTitle title="Теми дня" />
             <p className="-mt-2 text-sm text-slate-400">Щоранку о 09:00: гарячі новини, болі, скандали і готові кути для TikTok.</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Select
-              value={selectedRun?.id ?? "Немає запусків"}
-              onChange={(value) => {
-                if (runs.some((run) => run.id === value)) setSelectedRunId(value);
-              }}
-              options={runs.length ? runs.map((run) => run.id) : ["Немає запусків"]}
-            />
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="block">
+              <span className="mb-1 block text-xs text-slate-400">Фокус генерації</span>
+              <select className="field min-h-10 min-w-[220px]" value={generationFocus} onChange={(event) => setGenerationFocus(event.target.value)}>
+                {dailyTopicFocusLabels.map((label) => <option key={label} value={label}>{label}</option>)}
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs text-slate-400">Історія запусків</span>
+              <select
+                className="field min-h-10 min-w-[260px]"
+                value={selectedRun?.id ?? ""}
+                onChange={(event) => setSelectedRunId(event.target.value)}
+                disabled={!runs.length}
+              >
+                {runs.length ? runs.map((run, index) => (
+                  <option key={run.id} value={run.id}>
+                    {runOptions[index]}
+                  </option>
+                )) : <option value="">Немає запусків</option>}
+              </select>
+            </label>
             <button
               className="inline-flex min-h-10 items-center gap-2 rounded-lg bg-white px-4 font-black text-ink disabled:opacity-60"
-              onClick={onGenerate}
+              onClick={() => onGenerate(dailyTopicFocusKeyByLabel[generationFocus] ?? "all")}
               disabled={isGenerating}
             >
               <Sparkles className="h-4 w-4" />
@@ -4474,7 +4532,7 @@ function DailyTopicsPage({
             <div className="rounded-lg border border-blue/30 bg-blue/10 p-4">
               <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Підсумок</div>
               <div className="mt-2 text-sm leading-6 text-slate-200">{selectedRun.summary}</div>
-              <div className="mt-2 text-xs text-slate-400">{selectedRun.audience} · {selectedRun.region} · {selectedRun.status}</div>
+              <div className="mt-2 text-xs text-slate-400">{selectedRunLabel} · {selectedRun.focus_label || "Усе важливе"} · {selectedRun.audience} · {selectedRun.region} · {selectedRun.status}</div>
             </div>
 
             <div className="rounded-lg border border-amber/35 bg-amber/10 p-4">
@@ -4496,12 +4554,24 @@ function DailyTopicsPage({
               </div>
             </div>
 
+            <div className="flex flex-wrap gap-2">
+              {topicTabs.map((tab) => (
+                <button
+                  key={tab.label}
+                  className={`min-h-10 rounded-lg border px-3 text-sm font-black ${activeTopicTab === tab.label ? "border-blue bg-blue/15 text-sky-100" : "border-line bg-panel2 text-slate-300 hover:bg-white hover:text-ink"}`}
+                  onClick={() => setActiveTopicTab(tab.label)}
+                >
+                  {tab.label} · {tab.count}
+                </button>
+              ))}
+            </div>
+
             <div className="grid gap-3 xl:grid-cols-2">
-              {rankedTopics.map((topic, index) => (
+              {visibleTopics.map((topic, index) => (
                 <article key={topic.id} className="rounded-lg border border-line bg-panel2 p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-xs font-black text-blue">Тема {index + 1} · power {topicPowerScore(topic)} · {topic.series}</div>
+                      <div className="text-xs font-black text-blue">Тема {index + 1} · power {topicPowerScore(topic)} · {topic.production_status} · {topic.series}</div>
                       <h3 className="mt-1 text-lg font-black">{topic.title}</h3>
                     </div>
                     <div className="flex shrink-0 flex-col gap-2">
@@ -4511,9 +4581,20 @@ function DailyTopicsPage({
                       <Select
                         value={topic.production_status}
                         onChange={(value) => onPatchTopic(selectedRun.id, topic.id, { production_status: value as DailyContentTopic["production_status"] })}
-                        options={["Ідея", "Зняти першим", "Знято", "Змонтовано", "Опубліковано", "Архів"]}
+                        options={["Ідея", "Зняти першим", "Підтверджено", "Знято", "Змонтовано", "Опубліковано", "Архів"]}
                       />
                     </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button className="min-h-10 rounded-lg bg-white px-3 text-sm font-black text-ink" onClick={() => onPatchTopic(selectedRun.id, topic.id, { production_status: "Підтверджено" })}>
+                      Підтвердити
+                    </button>
+                    <button className="min-h-10 rounded-lg border border-amber/40 px-3 text-sm font-black text-amber-100 hover:bg-amber/10" onClick={() => onPatchTopic(selectedRun.id, topic.id, { production_status: "Знято" })}>
+                      Позначити знято
+                    </button>
+                    <button className="min-h-10 rounded-lg border border-red-400/40 px-3 text-sm font-black text-red-200 hover:bg-red-500/10" onClick={() => onPatchTopic(selectedRun.id, topic.id, { production_status: "Архів" })}>
+                      Відхилити
+                    </button>
                   </div>
                   <div className="mt-3 grid gap-2 sm:grid-cols-5">
                     <ScoreBox label="Віральність" value={topic.virality_score} />
@@ -4591,6 +4672,11 @@ function DailyTopicsPage({
                   </div>
                 </article>
               ))}
+              {!visibleTopics.length ? (
+                <div className="rounded-lg border border-dashed border-line p-8 text-center text-sm text-slate-500 xl:col-span-2">
+                  У цій вкладці поки немає тем.
+                </div>
+              ) : null}
             </div>
           </div>
         ) : (
