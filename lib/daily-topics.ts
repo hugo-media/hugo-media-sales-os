@@ -46,6 +46,8 @@ type SettingsRow<T> = { key: string; value: T };
 const topicSettingsKey = "daily_tiktok_topics";
 const defaultAudience = "українці в Польщі та Європі";
 const defaultRegion = "Poland and Europe";
+const serperTimeoutMs = 8_000;
+const openAiTimeoutMs = 38_000;
 const topicFocusConfigs: Record<string, { label: string; instruction: string; queries: string[] }> = {
   all: {
     label: "Усе важливе",
@@ -204,13 +206,23 @@ function topicFocus(focusKey?: string) {
   return topicFocusConfigs[focusKey || "all"] ?? topicFocusConfigs.all;
 }
 
+async function fetchWithTimeout(input: string, init: RequestInit, timeoutMs: number) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchSerperSources(focusKey?: string) {
   const apiKey = process.env.SERPER_API_KEY;
   if (!apiKey) return [];
   const focus = topicFocus(focusKey);
 
-  const batches = await Promise.all(focus.queries.map(async (query) => {
-    const response = await fetch("https://google.serper.dev/search", {
+  const batches = await Promise.allSettled(focus.queries.slice(0, 3).map(async (query) => {
+    const response = await fetchWithTimeout("https://google.serper.dev/search", {
       method: "POST",
       headers: {
         "X-API-KEY": apiKey,
@@ -218,7 +230,7 @@ async function fetchSerperSources(focusKey?: string) {
       },
       body: JSON.stringify({ q: query, gl: "pl", hl: "uk", num: 6 }),
       cache: "no-store"
-    });
+    }, serperTimeoutMs);
     if (!response.ok) return [];
     const data = await response.json() as {
       organic?: Array<{ title?: string; link?: string; snippet?: string }>;
@@ -234,7 +246,7 @@ async function fetchSerperSources(focusKey?: string) {
   }));
 
   const results: Array<{ title: string; url: string; snippet: string }> = [];
-  batches.flat().forEach((item) => {
+  batches.flatMap((batch) => batch.status === "fulfilled" ? batch.value : []).forEach((item) => {
     if (results.some((existing) => existing.url === item.url)) return;
     results.push(item);
   });
@@ -266,7 +278,7 @@ async function analyzeWithOpenAI(
   previousTitles: string[],
   focusKey?: string
 ) {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) return null;
   const focus = topicFocus(focusKey);
 
@@ -299,7 +311,7 @@ async function analyzeWithOpenAI(
     sourceText
   ].join("\n");
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const response = await fetchWithTimeout("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       authorization: `Bearer ${apiKey}`,
@@ -307,15 +319,26 @@ async function analyzeWithOpenAI(
     },
     body: JSON.stringify({
       model: process.env.OPENAI_TOPIC_MODEL || "gpt-4o-mini",
-      input: prompt,
+      messages: [
+        {
+          role: "system",
+          content: "Ти сильний редактор TikTok і повертаєш тільки валідний JSON без markdown."
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      response_format: { type: "json_object" },
       temperature: 0.35,
-      max_output_tokens: 3500
+      max_tokens: 2600
     }),
     cache: "no-store"
-  });
+  }, openAiTimeoutMs);
 
   if (!response.ok) throw new Error(`OpenAI ${response.status}: ${await response.text()}`);
-  const parsed = parseJsonObject(extractResponseText(await response.json()));
+  const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+  const parsed = parseJsonObject(data.choices?.[0]?.message?.content ?? "");
   return {
     summary: parsed.summary || "Актуальні теми для українців у Польщі та Європі.",
     topics: normalizeTopics(parsed.topics ?? [], sources)

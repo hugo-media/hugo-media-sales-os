@@ -2109,9 +2109,9 @@ export default function SalesOs() {
       if (!response.ok || !data.ok || !data.run) throw new Error(data.error || "Не вдалося згенерувати теми");
       const normalizedRun = { ...data.run, topics: data.run.topics.map(normalizeDailyTopic) } as DailyTopicRun;
       setDailyTopicRuns((current) => [normalizedRun, ...current.filter((item) => item.id !== normalizedRun.id)].slice(0, 30));
-      setToast("Теми дня згенеровано");
+      setToast(normalizedRun.status === "Ready" ? "Теми дня згенеровано" : "Теми збережено у резервному режимі");
     } catch (error) {
-      console.error("Manual topic generation failed", error);
+      console.warn("Manual topic generation failed", error);
       setToast(error instanceof Error ? error.message : "Не вдалося згенерувати теми");
     } finally {
       setIsGeneratingTopics(false);
