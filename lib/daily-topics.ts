@@ -48,6 +48,84 @@ const defaultAudience = "українці в Польщі та Європі";
 const defaultRegion = "Poland and Europe";
 const serperTimeoutMs = 8_000;
 const openAiTimeoutMs = 85_000;
+const openAiTopicResponseFormat = {
+  type: "json_schema",
+  json_schema: {
+    name: "daily_tiktok_topics",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["summary", "topics"],
+      properties: {
+        summary: { type: "string" },
+        topics: {
+          type: "array",
+          minItems: 10,
+          maxItems: 10,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: [
+              "title",
+              "angle",
+              "pain",
+              "hook",
+              "talking_points",
+              "caption",
+              "cta",
+              "conflict",
+              "series",
+              "virality_score",
+              "conflict_score",
+              "comment_score",
+              "emotion_score",
+              "ease_score",
+              "production_status",
+              "sources"
+            ],
+            properties: {
+              title: { type: "string" },
+              angle: { type: "string" },
+              pain: { type: "string" },
+              hook: { type: "string" },
+              talking_points: {
+                type: "array",
+                minItems: 3,
+                maxItems: 4,
+                items: { type: "string" }
+              },
+              caption: { type: "string" },
+              cta: { type: "string" },
+              conflict: { type: "string" },
+              series: { type: "string" },
+              virality_score: { type: "number" },
+              conflict_score: { type: "number" },
+              comment_score: { type: "number" },
+              emotion_score: { type: "number" },
+              ease_score: { type: "number" },
+              production_status: { type: "string", enum: ["Ідея", "Зняти першим"] },
+              sources: {
+                type: "array",
+                maxItems: 2,
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  required: ["title", "url", "snippet"],
+                  properties: {
+                    title: { type: "string" },
+                    url: { type: "string" },
+                    snippet: { type: "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+} as const;
 const topicFocusConfigs: Record<string, { label: string; instruction: string; queries: string[] }> = {
   all: {
     label: "Усе важливе",
@@ -301,8 +379,8 @@ async function analyzeWithOpenAI(
     "Оціни кожну тему числами 0-10: virality_score, conflict_score, comment_score, emotion_score, ease_score.",
     "production_status для топ-3 тем постав 'Зняти першим', для інших 'Ідея'.",
     "Не вигадуй фактів. Якщо тема базується на тренді, формулюй як гіпотезу/кут, а не як факт.",
-    "Поверни тільки JSON без markdown.",
-    'Формат: {"summary":"короткий підсумок дня","topics":[{"title":"","angle":"","pain":"","hook":"","format":"","talking_points":["","",""],"caption":"","cta":"","conflict":"","series":"","virality_score":0,"conflict_score":0,"comment_score":0,"emotion_score":0,"ease_score":0,"production_status":"Ідея","sources":[{"title":"","url":"","snippet":""}]}]}',
+    "Поверни тільки JSON за схемою. Тексти короткі: title до 90 символів, angle/pain/hook до 160 символів, caption до 140 символів.",
+    "Не додавай сценарії, довгі пояснення, markdown або зайві поля.",
     "",
     "Попередні теми, які НЕ можна повторювати:",
     previousTitles.slice(0, 40).map((title, index) => `${index + 1}. ${title}`).join("\n") || "немає",
@@ -329,9 +407,9 @@ async function analyzeWithOpenAI(
           content: prompt
         }
       ],
-      response_format: { type: "json_object" },
+      response_format: openAiTopicResponseFormat,
       temperature: 0.35,
-      max_tokens: 1900
+      max_tokens: 3200
     }),
     cache: "no-store"
   }, openAiTimeoutMs);
