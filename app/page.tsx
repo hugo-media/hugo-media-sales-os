@@ -1297,13 +1297,13 @@ function normalizeDailyTopic(topic: DailyContentTopic, index: number): DailyCont
     angle: topic.angle || "Пояснити ситуацію простою мовою.",
     pain: topic.pain || "Люди не розуміють, що робити далі.",
     hook,
-    hooks: topic.hooks?.length ? topic.hooks : [
+    hooks: topic.hooks?.length ? topic.hooks : viralHookFallbacks({
+      title: topic.title || `Тема ${index + 1}`,
       hook,
-      "Про це вже сперечаються в коментарях.",
-      "Якщо ти живеш у Польщі або Європі, це важливо.",
-      "Що насправді стоїть за цією новиною?",
-      "Це може зачепити багатьох українців за кордоном."
-    ],
+      pain: topic.pain || "Люди не розуміють, що робити далі.",
+      conflict: topic.conflict || "Люди не погоджуються, хто винен і що робити далі.",
+      angle: topic.angle || "Пояснити ситуацію простою мовою."
+    }),
     format: topic.format || "30-45 секунд: проблема, що сталося, що робити, питання в коментарі",
     talking_points: topic.talking_points?.length ? topic.talking_points : ["Що сталося", "Кого це зачіпає", "Що робити"],
     script_45s: topic.script_45s || `0-3 сек: ${hook}\n3-12 сек: що сталося\n12-25 сек: чому це важливо\n25-38 сек: позиція Hugo\n38-45 сек: питання в коментарі`,
@@ -1333,6 +1333,24 @@ function normalizeDailyTopic(topic: DailyContentTopic, index: number): DailyCont
     saves: Number(topic.saves) || 0,
     sources: topic.sources ?? []
   };
+}
+
+function viralHookFallbacks(topic: Pick<DailyContentTopic, "title" | "hook" | "pain" | "conflict" | "angle">) {
+  const title = compactTopicText(topic.title, 78);
+  const pain = compactTopicText(topic.pain || topic.hook || topic.title, 92);
+  const conflict = compactTopicText(topic.conflict || topic.angle || topic.title, 92);
+  return [
+    compactTopicText(topic.hook || `${title}: що від вас приховують?`, 120),
+    `${title}: помилка, яка може дорого коштувати`,
+    "Якщо ви в Польщі, це може зачепити вас вже зараз",
+    `Ось чому ${pain.toLowerCase()} - це не дрібниця`,
+    `Тут починається конфлікт: ${conflict.toLowerCase()}`
+  ];
+}
+
+function compactTopicText(value: string, limit: number) {
+  const clean = value.replace(/\s+/g, " ").trim();
+  return clean.length > limit ? `${clean.slice(0, limit - 1).trim()}…` : clean;
 }
 
 async function persistDailyTopicRuns(connection: SupabaseConnection, runs: DailyTopicRun[]) {

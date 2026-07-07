@@ -71,6 +71,7 @@ const openAiTopicResponseFormat = {
               "angle",
               "pain",
               "hook",
+              "hooks",
               "talking_points",
               "virality_score",
               "conflict_score",
@@ -84,6 +85,12 @@ const openAiTopicResponseFormat = {
               angle: { type: "string" },
               pain: { type: "string" },
               hook: { type: "string" },
+              hooks: {
+                type: "array",
+                minItems: 5,
+                maxItems: 5,
+                items: { type: "string" }
+              },
               talking_points: {
                 type: "array",
                 minItems: 3,
@@ -343,20 +350,25 @@ async function analyzeWithOpenAI(
     .join("\n\n");
 
   const prompt = [
-    "Ти редактор TikTok для Hugo Media. Потрібно щоранку знайти гарячі теми для українців у Польщі та Європі.",
-    "На основі джерел сформуй рівно 10 тем для коротких відео.",
+    "Ти не просто редактор. Ти TikTok growth strategist для Hugo Media: кожна ідея має мати шанс на мільйонні перегляди.",
+    "Потрібно щоранку знайти гарячі теми для українців у Польщі та Європі.",
+    "На основі джерел сформуй рівно 10 ОКРЕМИХ тем для коротких відео. Не роби 10 варіантів однієї теми.",
     `Фокус генерації: ${focus.label}.`,
     `Інструкція фокусу: ${focus.instruction}`,
     "Фокус: актуальні новини, скандали, болі українців, робота, житло, документи, медицина, бізнес, коментарі людей, соціальна напруга.",
-    "Кожна тема має бути не сухою новиною, а TikTok-ідеєю з конфліктом, емоцією, коментарями і чіткою позицією Hugo.",
+    "Кожна тема має бути не сухою новиною, а окремим TikTok-відео з конфліктом, болем, емоцією, коментарями і чіткою позицією Hugo.",
     "Позиція Hugo: показую не просто подію, а як це впливає на українців, бізнес і людей за кордоном.",
     "Не повторюй теми з попередніх запусків. Якщо новина та сама, знайди інший свіжий кут, біль або конфлікт.",
     "Нові теми став у production_status 'Ідея'. Тільки якщо тема дуже сильна, постав 'Зняти першим'. Не став 'Підтверджено', 'Знято' або 'Архів' під час генерації.",
     "Пиши коротко і професійно. Не генеруй довгий сценарій і багато коментарів: дай ядро теми, а система сама добудує production-пакет.",
+    "Для кожної теми створи рівно 5 різних hooks. Це мають бути не загальні фрази, а ядерні перші 1-2 секунди відео: гострі, підшкірні, конкретні, з напругою, страхом втрати, конфліктом або болем.",
+    "Hooks не мають повторюватися між темами. Заборонені шаблони типу 'Українці в Польщі, це важливо', 'Про це всі говорять', 'Перевір це сьогодні'.",
+    "Кожен hook має бути самодостатнім початком відео, який змушує додивитися: конкретна загроза, конфлікт, помилка, несправедливість, гроші, документи, робота, діти, житло або статус.",
+    "Думай як продюсер відео на 1M+ переглядів: тема має бути зрозуміла за 1 секунду, болюча для аудиторії і викликати коментарі.",
     "Оціни кожну тему числами 0-10: virality_score, conflict_score, comment_score, emotion_score, ease_score.",
     "production_status для топ-3 тем постав 'Зняти першим', для інших 'Ідея'.",
     "Не вигадуй фактів. Якщо тема базується на тренді, формулюй як гіпотезу/кут, а не як факт.",
-    "Поверни тільки JSON за схемою. Тексти короткі: title до 80 символів, angle/pain/hook до 130 символів.",
+    "Поверни тільки JSON за схемою. Тексти короткі: title до 80 символів, angle/pain/hook до 130 символів, кожен hook у hooks до 120 символів.",
     "Не додавай сценарії, caption, cta, sources, довгі пояснення, markdown або зайві поля.",
     "",
     "Попередні теми, які НЕ можна повторювати:",
@@ -377,7 +389,7 @@ async function analyzeWithOpenAI(
       messages: [
         {
           role: "system",
-          content: "Ти сильний редактор TikTok і повертаєш тільки валідний JSON без markdown."
+          content: "Ти TikTok growth strategist. Генеруєш окремі відео-ідеї і ядерні хуки для перших 1-2 секунд. Повертаєш тільки валідний JSON без markdown."
         },
         {
           role: "user",
@@ -447,13 +459,25 @@ function normalizeList(values: string[] | undefined, fallback: string[], limit: 
 }
 
 function normalizeHooks(topic: DailyContentTopic) {
-  return normalizeList(topic.hooks, [
-    topic.hook || "Українці в Польщі, це вас напряму стосується.",
-    "Про це мовчать, але в коментарях вже кипить.",
-    "Якщо ти живеш у Польщі або Європі, перевір це сьогодні.",
-    "Поляки знову обговорюють українців, і ось чому.",
-    "Це може стати новою проблемою для українців за кордоном."
-  ], 5);
+  return normalizeList(topic.hooks, viralHookFallbacks(topic), 5);
+}
+
+function viralHookFallbacks(topic: Pick<DailyContentTopic, "title" | "hook" | "pain" | "conflict" | "angle">) {
+  const title = compactText(topic.title, 78);
+  const pain = compactText(topic.pain || topic.hook || topic.title, 92);
+  const conflict = compactText(topic.conflict || topic.angle || topic.title, 92);
+  return [
+    compactText(topic.hook || `${title}: що від вас приховують?`, 120),
+    `${title}: помилка, яка може дорого коштувати`,
+    `Якщо ви в Польщі, це може зачепити вас вже зараз`,
+    `Ось чому ${pain.toLowerCase()} - це не дрібниця`,
+    `Тут починається конфлікт: ${conflict.toLowerCase()}`
+  ];
+}
+
+function compactText(value: string, limit: number) {
+  const clean = value.replace(/\s+/g, " ").trim();
+  return clean.length > limit ? `${clean.slice(0, limit - 1).trim()}…` : clean;
 }
 
 function buildDefaultScript(topic: Pick<DailyContentTopic, "title" | "hook" | "pain" | "angle" | "cta">) {
@@ -488,19 +512,18 @@ function fallbackTopics(sources: Array<{ title: string; url: string; snippet: st
   const topics = Array.from({ length: 10 }, (_, index) => {
     const source = base[index % base.length];
     const productionStatus: DailyContentTopic["production_status"] = index < 3 ? "Зняти першим" : "Ідея";
+    const title = source.title;
+    const pain = source.snippet || "Невизначеність, документи, гроші, житло або робота.";
+    const conflict = "Одна сторона каже, що проблема перебільшена, інша вже відчуває наслідки.";
+    const angle = "Розібрати, що це означає для українців у Польщі та Європі.";
+    const hook = `Українці знову обговорюють це: ${title}`;
     return {
       id: newId(`fallback-topic-${index + 1}`),
-      title: source.title,
-      angle: "Розібрати, що це означає для українців у Польщі та Європі.",
-      pain: source.snippet || "Невизначеність, документи, гроші, житло або робота.",
-      hook: `Українці знову обговорюють це: ${source.title}`,
-      hooks: [
-        `Українці знову обговорюють це: ${source.title}`,
-        "Про це вже сперечаються в коментарях.",
-        "Якщо ти живеш у Польщі або Європі, це важливо.",
-        "Що насправді стоїть за цією новиною?",
-        "Це може зачепити багатьох українців за кордоном."
-      ],
+      title,
+      angle,
+      pain,
+      hook,
+      hooks: viralHookFallbacks({ title, hook, pain, conflict, angle }),
       format: "30-45 секунд: проблема, що сталося, що робити, питання в коментарі",
       talking_points: [
         "Що сталося простими словами",
@@ -516,7 +539,7 @@ function fallbackTopics(sources: Array<{ title: string; url: string; snippet: st
       ].join("\n"),
       caption: `${source.title} Що думаєш?`,
       cta: "Напиши в коментарях, чи стикався з цим.",
-      conflict: "Одна сторона каже, що проблема перебільшена, інша вже відчуває наслідки.",
+      conflict,
       series: "Українці в Польщі: що змінилось сьогодні",
       pinned_comment: "У якому місті ви живете і чи бачите цю проблему?",
       hate_replies: [
