@@ -64,6 +64,7 @@ type TelegramUpdate = {
 
 const rawAppUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_PROJECT_PRODUCTION_URL || "";
 const appUrl = (rawAppUrl && !rawAppUrl.startsWith("http") ? `https://${rawAppUrl}` : rawAppUrl).replace(/\/$/, "");
+const fallbackSupabaseUrl = "https://lukxdctqcaprfwfisblw.supabase.co";
 const leadFinderNiches = [
   { key: "legal", label: "Легалізація / юристи", query: "Легалізація" },
   { key: "accounting", label: "Бухгалтерія", query: "Бухгалтерія" },
@@ -155,7 +156,7 @@ function isLeadClosed(lead?: Pick<LeadRow, "status"> | null) {
 }
 
 async function supabaseGet<T>(table: string, query: string) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || fallbackSupabaseUrl;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!supabaseUrl || !supabaseKey) {
     throw new Error("Missing Supabase env vars");
@@ -177,7 +178,7 @@ async function supabaseGet<T>(table: string, query: string) {
 }
 
 async function supabaseWrite<T>(table: string, query: string, body: unknown) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || fallbackSupabaseUrl;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!supabaseUrl || !supabaseKey) {
     throw new Error("Missing Supabase env vars");

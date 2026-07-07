@@ -331,8 +331,10 @@ export function dateKey(timeZone = process.env.TELEGRAM_TIME_ZONE || "Europe/Kyi
   return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
+const fallbackSupabaseUrl = "https://lukxdctqcaprfwfisblw.supabase.co";
+
 function supabaseConfig() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || fallbackSupabaseUrl;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !key) throw new Error("Missing Supabase env vars");
   return { url: url.replace(/\/$/, ""), key };
