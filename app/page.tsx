@@ -415,7 +415,6 @@ const defaultSettings: AppSettings = {
 const appTimeZone = "Europe/Warsaw";
 const seedToday = "2026-06-21";
 const seedTomorrow = "2026-06-22";
-const storageKey = "hugo-media-sales-os:v1";
 
 const leadOneId = "11111111-1111-4111-8111-111111111111";
 const leadTwoId = "22222222-2222-4222-8222-222222222222";
@@ -1037,27 +1036,14 @@ const supabase =
 
 type SupabaseConnection = NonNullable<typeof supabase>;
 
-const seedSnapshot: CrmSnapshot = {
-  leads: seedLeads,
-  tasks: seedTasks,
-  contentItems: seedContent,
-  templates: seedTemplates,
-  history: seedHistory,
+const emptySnapshot: CrmSnapshot = {
+  leads: [],
+  tasks: [],
+  contentItems: [],
+  templates: [],
+  history: [],
   settings: defaultSettings
 };
-
-function readLocalSnapshot(): CrmSnapshot | null {
-  try {
-    const raw = window.localStorage.getItem(storageKey);
-    return raw ? (JSON.parse(raw) as CrmSnapshot) : null;
-  } catch {
-    return null;
-  }
-}
-
-function writeLocalSnapshot(snapshot: CrmSnapshot) {
-  window.localStorage.setItem(storageKey, JSON.stringify(snapshot));
-}
 
 function contentToRow(item: ContentItem): ContentRow {
   const { CTA, ...rest } = item;
@@ -1417,12 +1403,12 @@ async function deleteSupabaseRows(connection: SupabaseConnection, table: string,
 
 export default function SalesOs() {
   const [active, setActive] = useState("today");
-  const [leads, setLeads] = useState(seedSnapshot.leads);
-  const [tasks, setTasks] = useState(seedSnapshot.tasks);
-  const [contentItems, setContentItems] = useState(seedSnapshot.contentItems);
-  const [templates, setTemplates] = useState(seedSnapshot.templates);
-  const [history, setHistory] = useState(seedSnapshot.history);
-  const [settings, setSettings] = useState(seedSnapshot.settings);
+  const [leads, setLeads] = useState(emptySnapshot.leads);
+  const [tasks, setTasks] = useState(emptySnapshot.tasks);
+  const [contentItems, setContentItems] = useState(emptySnapshot.contentItems);
+  const [templates, setTemplates] = useState(emptySnapshot.templates);
+  const [history, setHistory] = useState(emptySnapshot.history);
+  const [settings, setSettings] = useState(emptySnapshot.settings);
   const [leadCandidates, setLeadCandidates] = useState<LeadCandidate[]>([]);
   const [dailyTopicRuns, setDailyTopicRuns] = useState<DailyTopicRun[]>([]);
   const [isGeneratingTopics, setIsGeneratingTopics] = useState(false);
@@ -1478,7 +1464,6 @@ export default function SalesOs() {
     let cancelled = false;
 
     async function boot() {
-      const localSnapshot = readLocalSnapshot();
       const applySnapshot = (snapshot: CrmSnapshot) => {
         setLeads(snapshot.leads.map((lead) => normalizeLeadDates(lead as Lead)));
         setTasks(snapshot.tasks);
@@ -1502,15 +1487,12 @@ export default function SalesOs() {
 
         if (remoteSnapshot) {
           applySnapshot(remoteSnapshot);
-          writeLocalSnapshot(remoteSnapshot);
           setDataSource("supabase");
           setDataSourceNote(warning ? `Supabase підключений. Повільно завантажилось: ${warning}` : "");
           setSyncStatus("saved");
           setSyncMessage(warning ? "База підключена, частина таблиць повільна" : "База підключена");
         } else {
-          if (localSnapshot) {
-            applySnapshot(localSnapshot);
-          }
+          applySnapshot(emptySnapshot);
           setDataSource("local");
           const message = `Supabase не підключився: ${error ?? "невідома помилка"}`;
           setDataSourceNote(message);
@@ -1518,9 +1500,7 @@ export default function SalesOs() {
           setSyncMessage(message);
         }
       } else {
-        if (localSnapshot) {
-          applySnapshot(localSnapshot);
-        }
+        applySnapshot(emptySnapshot);
         setDataSourceNote("Supabase змінні не задані у Vercel.");
         setSyncStatus("local");
         setSyncMessage("База не підключена");
@@ -1538,7 +1518,6 @@ export default function SalesOs() {
   useEffect(() => {
     if (!isHydrated) return;
     const snapshot = { leads, tasks, contentItems, templates, history, settings };
-    writeLocalSnapshot(snapshot);
 
     if (!supabase || dataSource !== "supabase") return;
     setSyncStatus("saving");
@@ -2214,7 +2193,7 @@ export default function SalesOs() {
             <p className="text-sm text-slate-400">Сьогодні: {todayLabel}</p>
             <h1 className="mt-1 text-2xl font-black sm:text-3xl">{pageTitle}</h1>
             <p className="mt-2 text-xs text-slate-500">
-              Дані: {dataSource === "supabase" ? "Supabase" : "Demo/local browser storage"}
+              Дані: {dataSource === "supabase" ? "Supabase" : "База недоступна"}
             </p>
             {dataSourceNote ? <p className="mt-1 text-xs text-amber-300">{dataSourceNote}</p> : null}
             <div className={`mt-2 inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${syncPillClass}`}>
