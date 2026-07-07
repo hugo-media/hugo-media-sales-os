@@ -1001,8 +1001,20 @@ const routeById: Record<string, string> = {
 const idByRoute: Record<string, string> = Object.fromEntries(Object.entries(routeById).map(([id, route]) => [route, id]));
 
 const fallbackSupabaseUrl = "https://lukxdctqcaprfwfisblw.supabase.co";
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || fallbackSupabaseUrl;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+function cleanEnvValue(value?: string) {
+  return (value ?? "")
+    .replace(/^\uFEFF/, "")
+    .trim()
+    .replace(/^"(.*)"$/, "$1");
+}
+
+function cleanSupabaseUrl(value?: string) {
+  const cleaned = cleanEnvValue(value);
+  return cleaned || fallbackSupabaseUrl;
+}
+
+const supabaseUrl = cleanSupabaseUrl(process.env.NEXT_PUBLIC_SUPABASE_URL);
+const supabaseAnonKey = cleanEnvValue(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
 const supabase =
   supabaseUrl && supabaseAnonKey
     ? { url: supabaseUrl.replace(/\/$/, ""), key: supabaseAnonKey }
@@ -1142,15 +1154,29 @@ async function supabaseRequest<T>(
   query: string,
   init?: RequestInit
 ): Promise<T> {
-  const response = await fetch(`${connection.url}/rest/v1/${table}?${query}`, {
-    ...init,
-    headers: {
-      apikey: connection.key,
-      Authorization: `Bearer ${connection.key}`,
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {})
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 12_000);
+  let response: Response;
+
+  try {
+    response = await fetch(`${connection.url}/rest/v1/${table}?${query}`, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        apikey: connection.key,
+        Authorization: `Bearer ${connection.key}`,
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {})
+      }
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(`${table}: Supabase запит не відповів за 12 секунд`);
     }
-  });
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
 
   if (!response.ok) {
     const body = await response.text();
