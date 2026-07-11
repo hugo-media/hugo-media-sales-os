@@ -421,7 +421,7 @@ async function analyzeWithOpenAI(
       ],
       response_format: openAiTopicResponseFormat,
       temperature: 0.35,
-      max_tokens: 2600
+      max_tokens: 5200
     }),
     cache: "no-store"
   }, openAiTimeoutMs);
