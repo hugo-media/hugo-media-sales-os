@@ -109,6 +109,8 @@ type LeadCandidate = {
 type DailyContentTopic = {
   id: string;
   title: string;
+  event_title: string;
+  why_now: string;
   angle: string;
   pain: string;
   hook: string;
@@ -1294,6 +1296,8 @@ function normalizeDailyTopic(topic: DailyContentTopic, index: number): DailyCont
     ...topic,
     id: topic.id || newId(),
     title: topic.title || `Тема ${index + 1}`,
+    event_title: topic.event_title || topic.sources?.[0]?.title || topic.title || `Подія ${index + 1}`,
+    why_now: topic.why_now || topic.sources?.[0]?.snippet || "Це прив'язано до сьогоднішніх джерел і може зачепити аудиторію.",
     angle: topic.angle || "Пояснити ситуацію простою мовою.",
     pain: topic.pain || "Люди не розуміють, що робити далі.",
     hook,
@@ -4449,6 +4453,8 @@ function DailyTopicsPage({
       "5 хуків:",
       ...topic.hooks.map((hook) => `- ${hook}`),
       `Біль: ${topic.pain}`,
+      `Подія: ${topic.event_title}`,
+      `Чому зараз: ${topic.why_now}`,
       `Конфлікт: ${topic.conflict}`,
       `Кут: ${topic.angle}`,
       `Формат: ${topic.format}`,
@@ -4549,6 +4555,27 @@ function DailyTopicsPage({
               <div className="mt-2 text-xs text-slate-400">{selectedRunLabel} · {selectedRun.focus_label || "Усе важливе"} · {selectedRun.audience} · {selectedRun.region} · {selectedRun.status}</div>
             </div>
 
+            <div className="rounded-lg border border-line bg-panel2 p-4">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Джерела дня</div>
+                  <div className="mt-1 text-lg font-black">Матеріали, з яких зібрані теми</div>
+                </div>
+                <span className="rounded-full border border-line px-3 py-1 text-xs font-black text-slate-300">{selectedRun.sources.length} ресурсів</span>
+              </div>
+              <div className="grid gap-2 md:grid-cols-2">
+                {selectedRun.sources.slice(0, 8).map((source, sourceIndex) => (
+                  source.url ? (
+                    <a key={source.url} className="rounded-lg border border-line bg-ink/40 p-3 text-sm hover:bg-white hover:text-ink" href={source.url} target="_blank" rel="noreferrer">
+                      <span className="text-xs font-black text-blue">#{sourceIndex + 1}</span>
+                      <span className="ml-2 font-black">{source.title || "Джерело"}</span>
+                      {source.snippet ? <span className="mt-1 block line-clamp-2 text-xs opacity-75">{source.snippet}</span> : null}
+                    </a>
+                  ) : null
+                ))}
+              </div>
+            </div>
+
             <div className="rounded-lg border border-amber/35 bg-amber/10 p-4">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <div>
@@ -4616,6 +4643,16 @@ function DailyTopicsPage({
                     <ScoreBox label="Коментарі" value={topic.comment_score} />
                     <ScoreBox label="Емоція" value={topic.emotion_score} />
                     <ScoreBox label="Легко зняти" value={topic.ease_score} />
+                  </div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div className="rounded-lg border border-blue/30 bg-blue/10 p-3">
+                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Подія</div>
+                      <div className="mt-2 text-sm leading-6 text-slate-100">{topic.event_title}</div>
+                    </div>
+                    <div className="rounded-lg border border-amber/30 bg-amber/10 p-3">
+                      <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Чому зараз</div>
+                      <div className="mt-2 text-sm leading-6 text-slate-100">{topic.why_now}</div>
+                    </div>
                   </div>
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
                     <div className="rounded-lg border border-line bg-ink/40 p-3">

@@ -1,6 +1,8 @@
 export type DailyContentTopic = {
   id: string;
   title: string;
+  event_title: string;
+  why_now: string;
   angle: string;
   pain: string;
   hook: string;
@@ -68,6 +70,8 @@ const openAiTopicResponseFormat = {
             additionalProperties: false,
             required: [
               "title",
+              "event_title",
+              "why_now",
               "angle",
               "pain",
               "hook",
@@ -83,6 +87,8 @@ const openAiTopicResponseFormat = {
             ],
             properties: {
               title: { type: "string" },
+              event_title: { type: "string" },
+              why_now: { type: "string" },
               angle: { type: "string" },
               pain: { type: "string" },
               hook: { type: "string" },
@@ -383,6 +389,9 @@ async function analyzeWithOpenAI(
     "Якщо тема вічнозелена, вона має мати сьогоднішній привід: нове рішення, нова заява, новий кейс, новий конфлікт, нова хвиля коментарів або свіжа проблема людей.",
     "Не давай загальні теми типу 'проблеми з легалізацією', 'соціальний тиск', 'як знайти роботу'. Кожна тема має бути прив'язана до конкретної події, заяви, рішення, кейсу, цифри, організації, міста, закону, скандалу або джерела.",
     "Title має звучати як конкретна новина/подія, а не як категорія. У title або angle має бути конкретика: хто/де/що сталося/яка зміна/який кейс.",
+    "event_title - це конкретний факт із джерела: хто/що/де/коли. Не пиши там загальну категорію.",
+    "why_now - коротко поясни, чому це актуально саме сьогодні або в останні 24 години.",
+    "Якщо source не дає конкретної події, не роби з нього тему.",
     "На основі джерел сформуй рівно 10 ОКРЕМИХ тем для коротких відео. Не роби 10 варіантів однієї теми.",
     "Для кожної теми вкажи source_indexes: номери джерел із списку нижче, на яких базується тема. Не створюй тему, якщо не можеш прив'язати її хоча б до одного джерела.",
     `Фокус генерації: ${focus.label}.`,
@@ -454,6 +463,8 @@ function normalizeTopics(topics: DailyContentTopic[], sources: Array<{ title: st
     return {
       id: topic.id || newId(`daily-topic-${index + 1}`),
       title: topic.title || `Тема ${index + 1}`,
+      event_title: topic.event_title || indexedSources[0]?.title || topic.title || `Подія ${index + 1}`,
+      why_now: topic.why_now || indexedSources[0]?.snippet || "Це прив'язано до сьогоднішніх джерел і може зачепити українців у Польщі та Європі.",
       angle: topic.angle || "Пояснити ситуацію простою мовою.",
       pain: topic.pain || "Люди не розуміють, що робити далі.",
       hook: topic.hook || "Що зараз важливо знати українцям у Польщі та Європі?",
@@ -581,6 +592,8 @@ function fallbackTopics(sources: Array<{ title: string; url: string; snippet: st
     return {
       id: newId(`fallback-topic-${index + 1}`),
       title,
+      event_title: title,
+      why_now: pain,
       angle,
       pain,
       hook,
