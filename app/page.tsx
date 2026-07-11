@@ -4467,6 +4467,9 @@ function DailyTopicsPage({
       "Відповіді для залучення:",
       ...topic.engagement_replies.map((reply) => `- ${reply}`),
       "",
+      "Джерела:",
+      ...(topic.sources.length ? topic.sources.map((source) => `- ${source.title || "Джерело"}: ${source.url}`) : ["- джерело не вказано"]),
+      "",
       `Caption: ${topic.caption}`,
       `CTA: ${topic.cta}`
     ].join("\n");
@@ -4672,14 +4675,18 @@ function DailyTopicsPage({
                     <Input label="Коментарі" value={String(topic.comments || 0)} onChange={(value) => onPatchTopic(selectedRun.id, topic.id, { comments: Number(value) || 0 })} />
                     <Input label="Збереження" value={String(topic.saves || 0)} onChange={(value) => onPatchTopic(selectedRun.id, topic.id, { saves: Number(value) || 0 })} />
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {topic.sources.slice(0, 3).map((source) => (
-                      source.url ? (
-                        <a key={source.url} className="rounded-lg border border-line px-3 py-2 text-xs font-semibold hover:bg-white hover:text-ink" href={source.url} target="_blank" rel="noreferrer">
-                          Джерело
-                        </a>
-                      ) : null
-                    ))}
+                  <div className="mt-3 rounded-lg border border-line bg-ink/40 p-3">
+                    <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">Ресурси</div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {topic.sources.slice(0, 3).map((source, sourceIndex) => (
+                        source.url ? (
+                          <a key={source.url} className="max-w-full rounded-lg border border-line px-3 py-2 text-xs font-semibold hover:bg-white hover:text-ink" href={source.url} target="_blank" rel="noreferrer">
+                            {sourceIndex + 1}. {source.title || "Відкрити джерело"}
+                          </a>
+                        ) : null
+                      ))}
+                      {!topic.sources.length ? <span className="text-xs text-slate-500">Немає прив'язаного джерела</span> : null}
+                    </div>
                   </div>
                 </article>
               ))}

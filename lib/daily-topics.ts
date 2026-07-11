@@ -73,6 +73,7 @@ const openAiTopicResponseFormat = {
               "hook",
               "hooks",
               "talking_points",
+              "source_indexes",
               "virality_score",
               "conflict_score",
               "comment_score",
@@ -96,6 +97,12 @@ const openAiTopicResponseFormat = {
                 minItems: 3,
                 maxItems: 4,
                 items: { type: "string" }
+              },
+              source_indexes: {
+                type: "array",
+                minItems: 1,
+                maxItems: 3,
+                items: { type: "number" }
               },
               virality_score: { type: "number" },
               conflict_score: { type: "number" },
@@ -374,7 +381,10 @@ async function analyzeWithOpenAI(
     "Потрібно знайти гарячі теми саме на дату запиту, не загальні старі теми.",
     "Бери тільки новини, обговорення, скандали, болі або інфоприводи за сьогодні / останні 24 години. Якщо джерело старіше, використовуй його тільки якщо в ньому є розвиток саме сьогодні.",
     "Якщо тема вічнозелена, вона має мати сьогоднішній привід: нове рішення, нова заява, новий кейс, новий конфлікт, нова хвиля коментарів або свіжа проблема людей.",
+    "Не давай загальні теми типу 'проблеми з легалізацією', 'соціальний тиск', 'як знайти роботу'. Кожна тема має бути прив'язана до конкретної події, заяви, рішення, кейсу, цифри, організації, міста, закону, скандалу або джерела.",
+    "Title має звучати як конкретна новина/подія, а не як категорія. У title або angle має бути конкретика: хто/де/що сталося/яка зміна/який кейс.",
     "На основі джерел сформуй рівно 10 ОКРЕМИХ тем для коротких відео. Не роби 10 варіантів однієї теми.",
+    "Для кожної теми вкажи source_indexes: номери джерел із списку нижче, на яких базується тема. Не створюй тему, якщо не можеш прив'язати її хоча б до одного джерела.",
     `Фокус генерації: ${focus.label}.`,
     `Інструкція фокусу: ${focus.instruction}`,
     "Фокус: актуальні новини, скандали, болі українців, робота, житло, документи, медицина, бізнес, коментарі людей, соціальна напруга.",
@@ -392,7 +402,7 @@ async function analyzeWithOpenAI(
     "production_status для топ-3 тем постав 'Зняти першим', для інших 'Ідея'.",
     "Не вигадуй фактів. Якщо тема базується на тренді, формулюй як гіпотезу/кут, а не як факт.",
     "Поверни тільки JSON за схемою. Тексти короткі: title до 80 символів, angle/pain/hook до 130 символів, кожен hook у hooks до 120 символів.",
-    "Не додавай сценарії, caption, cta, sources, довгі пояснення, markdown або зайві поля.",
+    "Не додавай сценарії, caption, cta, sources, довгі пояснення, markdown або зайві поля. source_indexes обов'язкові.",
     "",
     "Попередні теми, які НЕ можна повторювати:",
     previousTitles.slice(0, 40).map((title, index) => `${index + 1}. ${title}`).join("\n") || "немає",
@@ -438,42 +448,61 @@ async function analyzeWithOpenAI(
 function normalizeTopics(topics: DailyContentTopic[], sources: Array<{ title: string; url: string; snippet: string }>) {
   const fallback = fallbackTopics(sources).topics;
   const merged = [...topics, ...fallback].slice(0, 10);
-  return merged.map((topic, index) => ({
-    id: topic.id || newId(`daily-topic-${index + 1}`),
-    title: topic.title || `Тема ${index + 1}`,
-    angle: topic.angle || "Пояснити ситуацію простою мовою.",
-    pain: topic.pain || "Люди не розуміють, що робити далі.",
-    hook: topic.hook || "Що зараз важливо знати українцям у Польщі та Європі?",
-    hooks: normalizeHooks(topic),
-    format: topic.format || "говоряча голова + 3 тези + питання в коментарі",
-    talking_points: (topic.talking_points ?? []).slice(0, 4),
-    script_45s: topic.script_45s || buildDefaultScript(topic),
-    caption: topic.caption || topic.title || `Тема ${index + 1}`,
-    cta: topic.cta || "Напиши в коментарях, як це у твоєму місті.",
-    conflict: topic.conflict || "Люди не погоджуються, хто винен і що робити далі.",
-    series: topic.series || pickSeries(topic),
-    pinned_comment: topic.pinned_comment || "А як це у вашому місті? Напишіть у коментарях.",
-    hate_replies: normalizeList(topic.hate_replies, [
-      "Я не узагальнюю всіх. Показую конкретну проблему і як вона впливає на людей.",
-      "Давайте без образ: важливо зрозуміти факти і наслідки.",
-      "Якщо маєте інший досвід, напишіть місто і ситуацію."
-    ], 3),
-    engagement_replies: normalizeList(topic.engagement_replies, [
-      "Цікаво, у якому ви місті і як це виглядає там?",
-      "Що було найскладніше саме для вас?",
-      "Зібрати окреме відео з вашими історіями?"
-    ], 3),
-    virality_score: score(topic.virality_score, index),
-    conflict_score: score(topic.conflict_score, index),
-    comment_score: score(topic.comment_score, index),
-    emotion_score: score(topic.emotion_score, index),
-    ease_score: score(topic.ease_score, index),
-    production_status: topic.production_status || (index < 3 ? "Зняти першим" : "Ідея"),
-    views: Number(topic.views) || 0,
-    comments: Number(topic.comments) || 0,
-    saves: Number(topic.saves) || 0,
-    sources: (topic.sources?.length ? topic.sources : sources.slice(index, index + 2)).slice(0, 3)
-  }));
+  return merged.map((topic, index) => {
+    const sourceIndexes = normalizeSourceIndexes((topic as DailyContentTopic & { source_indexes?: number[] }).source_indexes, index, sources.length);
+    const indexedSources = sourceIndexes.map((sourceIndex) => sources[sourceIndex - 1]).filter(Boolean);
+    return {
+      id: topic.id || newId(`daily-topic-${index + 1}`),
+      title: topic.title || `Тема ${index + 1}`,
+      angle: topic.angle || "Пояснити ситуацію простою мовою.",
+      pain: topic.pain || "Люди не розуміють, що робити далі.",
+      hook: topic.hook || "Що зараз важливо знати українцям у Польщі та Європі?",
+      hooks: normalizeHooks(topic),
+      format: topic.format || "говоряча голова + 3 тези + питання в коментарі",
+      talking_points: (topic.talking_points ?? []).slice(0, 4),
+      script_45s: topic.script_45s || buildDefaultScript(topic),
+      caption: topic.caption || topic.title || `Тема ${index + 1}`,
+      cta: topic.cta || "Напиши в коментарях, як це у твоєму місті.",
+      conflict: topic.conflict || "Люди не погоджуються, хто винен і що робити далі.",
+      series: topic.series || pickSeries(topic),
+      pinned_comment: topic.pinned_comment || "А як це у вашому місті? Напишіть у коментарях.",
+      hate_replies: normalizeList(topic.hate_replies, [
+        "Я не узагальнюю всіх. Показую конкретну проблему і як вона впливає на людей.",
+        "Давайте без образ: важливо зрозуміти факти і наслідки.",
+        "Якщо маєте інший досвід, напишіть місто і ситуацію."
+      ], 3),
+      engagement_replies: normalizeList(topic.engagement_replies, [
+        "Цікаво, у якому ви місті і як це виглядає там?",
+        "Що було найскладніше саме для вас?",
+        "Зібрати окреме відео з вашими історіями?"
+      ], 3),
+      virality_score: score(topic.virality_score, index),
+      conflict_score: score(topic.conflict_score, index),
+      comment_score: score(topic.comment_score, index),
+      emotion_score: score(topic.emotion_score, index),
+      ease_score: score(topic.ease_score, index),
+      production_status: topic.production_status || (index < 3 ? "Зняти першим" : "Ідея"),
+      views: Number(topic.views) || 0,
+      comments: Number(topic.comments) || 0,
+      saves: Number(topic.saves) || 0,
+      sources: (topic.sources?.length ? topic.sources : indexedSources.length ? indexedSources : sources.slice(index, index + 2)).slice(0, 3)
+    };
+  });
+}
+
+function normalizeSourceIndexes(values: number[] | undefined, index: number, sourceCount: number) {
+  const seen = new Set<number>();
+  const clean = (values ?? [])
+    .map((value) => Math.round(Number(value)))
+    .filter((value) => value >= 1 && value <= sourceCount)
+    .filter((value) => {
+      if (seen.has(value)) return false;
+      seen.add(value);
+      return true;
+    });
+  if (clean.length) return clean.slice(0, 3);
+  if (!sourceCount) return [];
+  return [index % sourceCount + 1];
 }
 
 function normalizeList(values: string[] | undefined, fallback: string[], limit: number) {
