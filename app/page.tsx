@@ -1297,13 +1297,13 @@ function normalizeDailyTopic(topic: DailyContentTopic, index: number): DailyCont
     angle: topic.angle || "Пояснити ситуацію простою мовою.",
     pain: topic.pain || "Люди не розуміють, що робити далі.",
     hook,
-    hooks: topic.hooks?.length ? topic.hooks : viralHookFallbacks({
+    hooks: normalizeTopicHooks(topic.hooks, viralHookFallbacks({
       title: topic.title || `Тема ${index + 1}`,
       hook,
       pain: topic.pain || "Люди не розуміють, що робити далі.",
       conflict: topic.conflict || "Люди не погоджуються, хто винен і що робити далі.",
       angle: topic.angle || "Пояснити ситуацію простою мовою."
-    }),
+    })),
     format: topic.format || "30-45 секунд: проблема, що сталося, що робити, питання в коментарі",
     talking_points: topic.talking_points?.length ? topic.talking_points : ["Що сталося", "Кого це зачіпає", "Що робити"],
     script_45s: topic.script_45s || `0-3 сек: ${hook}\n3-12 сек: що сталося\n12-25 сек: чому це важливо\n25-38 сек: позиція Hugo\n38-45 сек: питання в коментарі`,
@@ -1333,6 +1333,20 @@ function normalizeDailyTopic(topic: DailyContentTopic, index: number): DailyCont
     saves: Number(topic.saves) || 0,
     sources: topic.sources ?? []
   };
+}
+
+function normalizeTopicHooks(values: string[] | undefined, fallback: string[]) {
+  const seen = new Set<string>();
+  const clean = [...(values ?? []), ...fallback]
+    .filter((value) => value && value.trim())
+    .map((value) => value.trim())
+    .filter((value) => {
+      const key = value.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  return clean.slice(0, 5);
 }
 
 function viralHookFallbacks(topic: Pick<DailyContentTopic, "title" | "hook" | "pain" | "conflict" | "angle">) {

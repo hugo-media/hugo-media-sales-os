@@ -477,8 +477,17 @@ function normalizeTopics(topics: DailyContentTopic[], sources: Array<{ title: st
 }
 
 function normalizeList(values: string[] | undefined, fallback: string[], limit: number) {
-  const clean = (values ?? []).filter((value) => value && value.trim()).map((value) => value.trim());
-  return [...clean, ...fallback].slice(0, limit);
+  const seen = new Set<string>();
+  const clean = [...(values ?? []), ...fallback]
+    .filter((value) => value && value.trim())
+    .map((value) => value.trim())
+    .filter((value) => {
+      const key = value.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  return clean.slice(0, limit);
 }
 
 function normalizeHooks(topic: DailyContentTopic) {
