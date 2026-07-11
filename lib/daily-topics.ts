@@ -216,6 +216,16 @@ export function dateKey(timeZone = process.env.TELEGRAM_TIME_ZONE || "Europe/Kyi
   return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
+function dateLabel(date: string, locale = "uk-UA") {
+  const [year, month, day] = date.split("-").map(Number);
+  if (!year || !month || !day) return date;
+  return new Intl.DateTimeFormat(locale, {
+    year: "numeric",
+    month: "long",
+    day: "numeric"
+  }).format(new Date(Date.UTC(year, month - 1, day)));
+}
+
 const fallbackSupabaseUrl = "https://lukxdctqcaprfwfisblw.supabase.co";
 
 function cleanSupabaseUrl(value?: string) {
@@ -278,7 +288,13 @@ async function fetchWithTimeout(input: string, init: RequestInit, timeoutMs: num
   }
 }
 
-async function fetchSerperSources(focusKey?: string) {
+function datedSearchQuery(query: string, today: string) {
+  const ukDate = dateLabel(today, "uk-UA");
+  const plDate = dateLabel(today, "pl-PL");
+  return `${query} сьогодні ${today} ${ukDate} ${plDate}`;
+}
+
+async function fetchSerperSources(focusKey: string | undefined, today: string) {
   const apiKey = process.env.SERPER_API_KEY;
   if (!apiKey) return [];
   const focus = topicFocus(focusKey);
@@ -290,7 +306,7 @@ async function fetchSerperSources(focusKey?: string) {
         "X-API-KEY": apiKey,
         "content-type": "application/json"
       },
-      body: JSON.stringify({ q: query, gl: "pl", hl: "uk", num: 6 }),
+      body: JSON.stringify({ q: datedSearchQuery(query, today), gl: "pl", hl: "uk", num: 8, tbs: "qdr:d" }),
       cache: "no-store"
     }, serperTimeoutMs);
     if (!response.ok) return [];
@@ -338,11 +354,14 @@ function parseJsonObject(text: string) {
 async function analyzeWithOpenAI(
   sources: Array<{ title: string; url: string; snippet: string }>,
   previousTitles: string[],
-  focusKey?: string
+  focusKey: string | undefined,
+  today: string
 ) {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) return null;
   const focus = topicFocus(focusKey);
+  const todayUk = dateLabel(today, "uk-UA");
+  const todayPl = dateLabel(today, "pl-PL");
 
   const sourceText = sources
     .slice(0, 8)
@@ -351,7 +370,10 @@ async function analyzeWithOpenAI(
 
   const prompt = [
     "Ти не просто редактор. Ти TikTok growth strategist для Hugo Media: кожна ідея має мати шанс на мільйонні перегляди.",
-    "Потрібно щоранку знайти гарячі теми для українців у Польщі та Європі.",
+    `Дата запиту: ${today} / ${todayUk} / ${todayPl}.`,
+    "Потрібно знайти гарячі теми саме на дату запиту, не загальні старі теми.",
+    "Бери тільки новини, обговорення, скандали, болі або інфоприводи за сьогодні / останні 24 години. Якщо джерело старіше, використовуй його тільки якщо в ньому є розвиток саме сьогодні.",
+    "Якщо тема вічнозелена, вона має мати сьогоднішній привід: нове рішення, нова заява, новий кейс, новий конфлікт, нова хвиля коментарів або свіжа проблема людей.",
     "На основі джерел сформуй рівно 10 ОКРЕМИХ тем для коротких відео. Не роби 10 варіантів однієї теми.",
     `Фокус генерації: ${focus.label}.`,
     `Інструкція фокусу: ${focus.instruction}`,
@@ -365,6 +387,7 @@ async function analyzeWithOpenAI(
     "Hooks не мають повторюватися між темами. Заборонені шаблони типу 'Українці в Польщі, це важливо', 'Про це всі говорять', 'Перевір це сьогодні'.",
     "Кожен hook має бути самодостатнім початком відео, який змушує додивитися: конкретна загроза, конфлікт, помилка, несправедливість, гроші, документи, робота, діти, житло або статус.",
     "Думай як продюсер відео на 1M+ переглядів: тема має бути зрозуміла за 1 секунду, болюча для аудиторії і викликати коментарі.",
+    "У кожній темі angle або pain має показувати, чому ця тема важлива саме сьогодні.",
     "Оціни кожну тему числами 0-10: virality_score, conflict_score, comment_score, emotion_score, ease_score.",
     "production_status для топ-3 тем постав 'Зняти першим', для інших 'Ідея'.",
     "Не вигадуй фактів. Якщо тема базується на тренді, формулюй як гіпотезу/кут, а не як факт.",
@@ -505,7 +528,7 @@ function score(value: number | undefined, index: number) {
   return Math.max(6, 10 - Math.floor(index / 2));
 }
 
-function fallbackTopics(sources: Array<{ title: string; url: string; snippet: string }>): { summary: string; topics: DailyContentTopic[] } {
+function fallbackTopics(sources: Array<{ title: string; url: string; snippet: string }>, today = dateKey()): { summary: string; topics: DailyContentTopic[] } {
   const base = sources.length ? sources : [
     { title: "Українці в Польщі: робота, житло, документи", url: "", snippet: "Ранковий fallback без підключеного OpenAI або Serper." }
   ];
@@ -564,7 +587,7 @@ function fallbackTopics(sources: Array<{ title: string; url: string; snippet: st
       sources: [source]
     };
   });
-  return { summary: "Fallback: теми сформовані з пошукових джерел без OpenAI-аналізу.", topics };
+  return { summary: `Fallback: теми сформовані з пошукових джерел за ${today} без OpenAI-аналізу.`, topics };
 }
 
 async function sendTelegramTopics(run: DailyTopicRun) {
@@ -619,13 +642,13 @@ export async function generateDailyTopics(options: { sendTelegram?: boolean; req
   const existing = await readTopicRuns();
   const previousTitles = existing.flatMap((run) => run.topics?.map((topic) => topic.title) ?? []);
   const focus = topicFocus(options.focusKey);
-  const sources = await fetchSerperSources(options.focusKey);
+  const sources = await fetchSerperSources(options.focusKey, today);
   let status: DailyTopicRun["status"] = "Ready";
-  let analysis = fallbackTopics(sources);
+  let analysis = fallbackTopics(sources, today);
   let openAiError = "";
 
   try {
-    const openAiAnalysis = await analyzeWithOpenAI(sources, previousTitles, options.focusKey);
+    const openAiAnalysis = await analyzeWithOpenAI(sources, previousTitles, options.focusKey, today);
     if (openAiAnalysis) analysis = openAiAnalysis;
     else {
       status = "Fallback";
