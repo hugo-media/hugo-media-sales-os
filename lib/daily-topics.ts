@@ -339,10 +339,46 @@ async function fetchSerperSources(focusKey: string | undefined, today: string) {
   const results: Array<{ title: string; url: string; snippet: string }> = [];
   batches.flatMap((batch) => batch.status === "fulfilled" ? batch.value : []).forEach((item) => {
     if (results.some((existing) => existing.url === item.url)) return;
+    if (!isAudienceRelevantSource(item)) return;
     results.push(item);
   });
 
   return results.slice(0, 16);
+}
+
+function isAudienceRelevantSource(source: { title: string; url: string; snippet: string }) {
+  const text = `${source.title} ${source.snippet} ${source.url}`.toLowerCase();
+  const audienceSignals = [
+    "українці в польщ",
+    "українців у польщ",
+    "українцям у польщ",
+    "українські біжен",
+    "біженц",
+    "польщ",
+    "polsce",
+    "polska",
+    "polski",
+    "ukraińcy",
+    "ukraińców",
+    "uchodź",
+    "karta pobytu",
+    "legalizacja",
+    "zezwolenie",
+    "świadczenia",
+    "zus",
+    "європ",
+    "europ",
+    "німеч",
+    "germany",
+    "чех",
+    "czech",
+    "релокац",
+    "мігран"
+  ];
+  const pureWarSignals = ["дрон", "ракета", "фронт", "азовськ", "судноплав", "російськ", "окупац", "військ"];
+  const hasAudienceSignal = audienceSignals.some((signal) => text.includes(signal));
+  const looksLikePureWar = pureWarSignals.some((signal) => text.includes(signal)) && !/(польщ|polsc|polska|polsce|біжен|uchodź|європ|europ|мігран|relokac)/i.test(text);
+  return hasAudienceSignal && !looksLikePureWar;
 }
 
 function extractResponseText(data: unknown) {
@@ -387,6 +423,7 @@ async function analyzeWithOpenAI(
     "Потрібно знайти гарячі теми саме на дату запиту, не загальні старі теми.",
     "Бери тільки новини, обговорення, скандали, болі або інфоприводи за сьогодні / останні 24 години. Якщо джерело старіше, використовуй його тільки якщо в ньому є розвиток саме сьогодні.",
     "Якщо тема вічнозелена, вона має мати сьогоднішній привід: нове рішення, нова заява, новий кейс, новий конфлікт, нова хвиля коментарів або свіжа проблема людей.",
+    "Не бери просто новини про війну в Україні, фронт, дрони або політику України, якщо немає прямого наслідку для українців у Польщі/Європі: документи, робота, житло, гроші, школа, медицина, статус, бізнес, міграція, безпека або суспільне ставлення.",
     "Не давай загальні теми типу 'проблеми з легалізацією', 'соціальний тиск', 'як знайти роботу'. Кожна тема має бути прив'язана до конкретної події, заяви, рішення, кейсу, цифри, організації, міста, закону, скандалу або джерела.",
     "Title має звучати як конкретна новина/подія, а не як категорія. У title або angle має бути конкретика: хто/де/що сталося/яка зміна/який кейс.",
     "event_title - це конкретний факт із джерела: хто/що/де/коли. Не пиши там загальну категорію.",
