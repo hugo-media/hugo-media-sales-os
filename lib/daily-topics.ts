@@ -63,7 +63,7 @@ const openAiTopicResponseFormat = {
         summary: { type: "string" },
         topics: {
           type: "array",
-          minItems: 10,
+          minItems: 1,
           maxItems: 10,
           items: {
             type: "object",
@@ -429,7 +429,8 @@ async function analyzeWithOpenAI(
     "event_title - це конкретний факт із джерела: хто/що/де/коли. Не пиши там загальну категорію.",
     "why_now - коротко поясни, чому це актуально саме сьогодні або в останні 24 години.",
     "Якщо source не дає конкретної події, не роби з нього тему.",
-    "На основі джерел сформуй рівно 10 ОКРЕМИХ тем для коротких відео. Не роби 10 варіантів однієї теми.",
+    "На основі джерел сформуй від 1 до 10 ОКРЕМИХ тем для коротких відео. Якість важливіша за кількість.",
+    "Якщо конкретних джерел мало, дай менше тем. Заборонено добивати список вигаданими або загальними темами до 10.",
     "Для кожної теми вкажи source_indexes: номери джерел із списку нижче, на яких базується тема. Не створюй тему, якщо не можеш прив'язати її хоча б до одного джерела.",
     `Фокус генерації: ${focus.label}.`,
     `Інструкція фокусу: ${focus.instruction}`,
@@ -493,7 +494,7 @@ async function analyzeWithOpenAI(
 
 function normalizeTopics(topics: DailyContentTopic[], sources: Array<{ title: string; url: string; snippet: string }>) {
   const fallback = fallbackTopics(sources).topics;
-  const merged = [...topics, ...fallback].slice(0, 10);
+  const merged = (topics.length ? topics : fallback).slice(0, 10);
   return merged.map((topic, index) => {
     const sourceIndexes = normalizeSourceIndexes((topic as DailyContentTopic & { source_indexes?: number[] }).source_indexes, index, sources.length);
     const indexedSources = sourceIndexes.map((sourceIndex) => sources[sourceIndex - 1]).filter(Boolean);
@@ -618,7 +619,8 @@ function fallbackTopics(sources: Array<{ title: string; url: string; snippet: st
   const base = sources.length ? sources : [
     { title: "Українці в Польщі: робота, житло, документи", url: "", snippet: "Ранковий fallback без підключеного OpenAI або Serper." }
   ];
-  const topics = Array.from({ length: 10 }, (_, index) => {
+  const topicCount = sources.length ? Math.min(10, sources.length) : 0;
+  const topics = Array.from({ length: topicCount }, (_, index) => {
     const source = base[index % base.length];
     const productionStatus: DailyContentTopic["production_status"] = index < 3 ? "Зняти першим" : "Ідея";
     const title = source.title;
